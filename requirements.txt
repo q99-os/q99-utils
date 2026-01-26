@@ -1,0 +1,7 @@
+wheel
+setuptools
+twine
+pytest
+pytest-runner
+httpx==0.28.1
+pydantic==2.11.7

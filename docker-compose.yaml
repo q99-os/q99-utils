@@ -1,0 +1,12 @@
+version: "3.3"
+services:
+  q99_utils:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8007:80"
+    volumes:
+      - ./:/code/
+    stdin_open: true  
+    tty: true 
