@@ -88,39 +88,10 @@ class UserManagerSDK:
         
         return await self._request(method="GET", url=conversation_url)
         
-    async def get_branch_history(self, interaction_id: str, normalize: bool=False, add_last_msg: bool=False):
+    async def get_branch_history(self, interaction_id: str):
         interaction_url = f"{USER_MANAGER_URL}/v1/history/conversation/{interaction_id}/branch/"
 
-        branch_content = await self._request(method="GET", url=interaction_url)
-            
-        interactions = branch_content["chats"]
-        
-        if add_last_msg:
-            last_msg_content = interactions[-1]["messages"][-1]
-            if last_msg_content["type"] != "Interruption":
-                raise ValueError(f"'{interaction_id}' does not correspond to an active interruption.")
-            
-            branch_content["last_msg"] = last_msg_content
-            
-        if interactions[-1]["status"] == "Stopped": # Removal of "stopped" questions. 
-            interactions.pop()
-        
-        if normalize: # UM to ChatCompletions API Mapping
-            messages = []
-            for interaction in interactions: # chat = interaction
-                for msg in interaction["messages"]:
-                    # Skip error messages - they shouldn't be part of chat history
-                    if msg["type"] == "Error":
-                        continue
-                    messages.append( 
-                        {
-                            "role":"assistant" if msg["type"] in {"Answer","Interruption"} else "user", 
-                            "content":msg["content"]
-                        }
-                    )
-            branch_content["messages"] = messages
-            
-        return branch_content  
+        return await self._request(method="GET", url=interaction_url)
     
     async def add_interaction_message(self, interaction_id: str, message: UMMessage):
         interaction_url = f"{USER_MANAGER_URL}/v1/history/conversation/add-message/"
@@ -147,7 +118,7 @@ class UserManagerSDK:
         if conversation_id is not None:
             payload["conversation_id"] = conversation_id
         if parent_interaction_id is not None:
-            payload["parent_interaction"] = parent_interaction_id # que alguien me explique porq este no tiene id ._. // Porque no todos tienen ocd como vos'
+            payload["parent_interaction"] = parent_interaction_id # que alguien me explique porq este no tiene id ._. // Porque no todos tienen ocd como vos' id = _id nmw
         if title is not None:
             payload["title"] = title
         
