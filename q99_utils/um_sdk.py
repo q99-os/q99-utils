@@ -68,10 +68,15 @@ class UserManagerSDK:
 
         return await self._request(method="PUT", url=update_url, json=data.model_dump())
 
-    async def patch_credential(self, credential_id:str, json:dict):
+    async def activate_credential(self, credential_id:str):
         patch_url = f"{USER_MANAGER_URL}/v1/credentials/{credential_id}/"
 
-        return await self._request(method="PATCH", url=patch_url, json=json)
+        return await self._request(method="PATCH", url=patch_url, json={"is_active": True})
+
+    async def deactivate_credential(self, credential_id:str):
+        patch_url = f"{USER_MANAGER_URL}/v1/credentials/{credential_id}/"
+
+        return await self._request(method="PATCH", url=patch_url, json={"is_active": False})
 
     async def validate_token(self):
         auth_url = f"{USER_MANAGER_URL}/v1/validate/"
