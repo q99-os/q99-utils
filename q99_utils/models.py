@@ -22,6 +22,7 @@ class SourceEnum(StrEnum):
     openwells = "openwells"
     gmail = "gmail",
     outlook = "outlook"
+    azure_ad = "azure_ad"
 
 
 class DatabaseBackendEnum(StrEnum):
@@ -37,8 +38,10 @@ class IntegrationTypeEnum(StrEnum):
     reasoning_model = "reasoning_model"
     bot = "bot"
     email = "email"
+    idp = "idp"
 
 class OnboardingData(BaseModel):
+    id: str | None = Field(default=None)
     source: SourceEnum = Field(...)
     integration_type: IntegrationTypeEnum = Field(default=None)
 
