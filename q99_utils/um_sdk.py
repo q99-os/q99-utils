@@ -48,14 +48,22 @@ class UserManagerSDK:
             return cleaned_config_data
         return response.json()
 
-    async def get_credential(self, source: str | None = None, integration_type: str | None = None):
+    async def get_credential(
+        self,
+        credential_id: str | None = None,
+        source: str | None = None,
+        integration_type: str | None = None
+    ):
+        if credential_id:
+            url = f"{USER_MANAGER_URL}/v1/credentials/{credential_id}/"
+            return await self._request(method="GET", url=url)
+        
         url = f"{USER_MANAGER_URL}/v1/credentials/"
         params = {}
         if source:
             params["source"] = source
         if integration_type:
             params["integration-type"] = integration_type
-        
         return await self._request(method="GET", url=url, params=params)
 
     async def post_credentials(self, data: OnboardingData):
