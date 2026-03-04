@@ -15,6 +15,8 @@ class SourceEnum(StrEnum):
     gemini = "gemini"
     azure = "azure"
     s3 = "s3"
+    blob = "blob"
+    gcs = "gcs"
     webpages = "webpages"
     slack = "slack"
     greenapi = "greenapi"
