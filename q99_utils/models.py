@@ -22,7 +22,7 @@ class SourceEnum(StrEnum):
     greenapi = "greenapi"
     greenapi_partner = "greenapi-partner"
     openwells = "openwells"
-    gmail = "gmail",
+    gmail = "gmail"
     outlook = "outlook"
     azure_ad = "azure_ad"
 
