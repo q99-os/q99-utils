@@ -65,7 +65,7 @@ class OnboardingData(BaseModel):
     database_name: str | None = Field(default=None)
     host: str | None = Field(default=None)
     port: str | None = Field(default=None)
-    root_folder: str | None = Field(default=None)
+    root_folders: list[str] | None = Field(default=None)
     instance_id: str | None = Field(default=None)
     partner_token: str | None = Field(default=None)
     instance_name: str | None = Field(default=None)
