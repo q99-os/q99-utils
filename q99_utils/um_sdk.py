@@ -1,4 +1,4 @@
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from typing import List, Optional
 import httpx
 
@@ -32,11 +32,11 @@ class UserManagerSDK:
             )
         except httpx.RequestError as exc:
             raise HTTPException(
-                status_code=503,
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=f"User Manager unavailable: {exc}"
             )# UM does not respond
 
-        if response.status_code > 400:
+        if response.status_code >= 400:
             raise HTTPException(
                 status_code=response.status_code,
                 detail=response.text
