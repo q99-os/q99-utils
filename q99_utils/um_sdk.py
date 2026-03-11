@@ -170,3 +170,7 @@ class UserManagerSDK:
         url = f"{USER_MANAGER_URL}/v1/history/conversation/{conversation_id}/set-tags/"
 
         return await self._request(method="POST", url=url, params={"tags":tags_ids})
+
+    async def fetch_idp_role(self, email: str):
+        url = f"{USER_MANAGER_URL}/v1/invitation/fetch-idp-role/"
+        return await self._request(method="POST", url=url, json={"email": email})
