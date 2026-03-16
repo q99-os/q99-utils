@@ -25,6 +25,7 @@ class SourceEnum(StrEnum):
     gmail = "gmail"
     outlook = "outlook"
     azure_ad = "azure_ad"
+    bigquery = "bigquery"
 
 
 class DatabaseBackendEnum(StrEnum):
