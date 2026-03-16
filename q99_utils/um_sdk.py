@@ -74,7 +74,7 @@ class UserManagerSDK:
     async def update_credentials(self, data, credential_id: str):
         update_url = f"{USER_MANAGER_URL}/v1/credentials/{credential_id}/"
 
-        return await self._request(method="PUT", url=update_url, json=data.model_dump())
+        return await self._request(method="PATCH", url=update_url, json=data.model_dump(exclude_none=True))
 
     async def update_root_folders(self, credential_id: str, root_folders: list):
         patch_url = f"{USER_MANAGER_URL}/v1/credentials/{credential_id}/"
