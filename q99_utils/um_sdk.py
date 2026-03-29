@@ -174,3 +174,8 @@ class UserManagerSDK:
     async def fetch_idp_role(self, email: str):
         url = f"{USER_MANAGER_URL}/v1/invitation/fetch-idp-role/"
         return await self._request(method="POST", url=url, json={"email": email})
+    
+    async def ping_credentials(self):
+        ping_url = f"{USER_MANAGER_URL}/v1/credentials/ping/"
+
+        return await self._request(method="POST", url=ping_url)
