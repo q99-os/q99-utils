@@ -6,10 +6,13 @@ from q99_utils.environment import USER_MANAGER_URL
 from q99_utils.models import OnboardingData, UMMessage
 
 class UserManagerSDK:
-    def __init__(self, access_token:str) -> None:
+    def __init__(self, access_token: str | None = None, *, api_key: str | None = None) -> None:
+        if access_token and api_key:
+            raise ValueError("Pass either access_token or api_key, not both")
         self.access_token = access_token
+        self.api_key = api_key
         self._client = httpx.AsyncClient(timeout=30.0)
-        
+
     async def _request(
         self,
         method: str,
@@ -20,7 +23,10 @@ class UserManagerSDK:
         clean_output: bool = False
     ):
         headers = headers or {}
-        headers["Authorization"] = self.access_token
+        if self.access_token:
+            headers["Authorization"] = self.access_token
+        elif self.api_key:
+            headers["Authorization"] = f"Api-Key {self.api_key}"
 
         try:
             response = await self._client.request(
@@ -175,7 +181,17 @@ class UserManagerSDK:
         url = f"{USER_MANAGER_URL}/v1/invitation/fetch-idp-role/"
         return await self._request(method="POST", url=url, json={"email": email})
     
-    async def ping_credentials(self):
+    async def ping_credentials(self, service: str | None = None):
         ping_url = f"{USER_MANAGER_URL}/v1/credentials/ping/"
+        params = {"service": service} if service else None
+        return await self._request(method="POST", url=ping_url, params=params)
 
-        return await self._request(method="POST", url=ping_url)
+    async def register_permissions(self, service: str, permissions: list[dict]):
+        if not self.api_key:
+            raise ValueError("register_permissions requires api_key auth")
+        url = f"{USER_MANAGER_URL}/v1/permissions"
+        return await self._request(
+            method="POST",
+            url=url,
+            json={"service": service, "permissions": permissions},
+        )
