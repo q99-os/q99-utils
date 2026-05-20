@@ -1,5 +1,5 @@
 from fastapi import HTTPException, status
-from typing import List, Optional
+from typing import List, Literal, Optional
 import httpx
 
 from q99_utils.environment import USER_MANAGER_URL
@@ -194,4 +194,12 @@ class UserManagerSDK:
             method="POST",
             url=url,
             json={"service": service, "permissions": permissions},
+        )
+
+    async def create_activity_log(self, action: str, severity: Literal["info", "warning", "error"], description: str):
+        url = f"{USER_MANAGER_URL}/v1/log/"
+        return await self._request(
+            method="POST",
+            url=url,
+            json={"action": action, "severity": severity, "description": description},
         )
