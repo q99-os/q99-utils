@@ -1,5 +1,5 @@
 from enum import StrEnum
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -74,7 +74,66 @@ class OnboardingData(BaseModel):
 
 
 class UMMessage(BaseModel):
-    content: str
+    content: str = ""
+    steps: Optional[List[Dict[str, Any]]] = None
     metadata: Optional[Dict[str, Any]] = {}
     type: Literal["Question", "Answer", "Interruption", "Error"]
+
+
+# === Telemetry ===
+
+TraceType = Literal["chat", "embedding", "vision", "stt"]
+TraceGroupStatus = Literal["running", "completed", "error", "stopped"]
+
+
+class UMTrace(BaseModel):
+    """A single LLM/embedding/vision/stt call record."""
+    id: Optional[str] = None
+    created_at: Optional[int] = None  # epoch seconds; UM defaults to now() if omitted
+    type: TraceType
+    provider: str
+    model: str
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+    cached_tokens: Optional[int] = None
+    cost: Optional[float] = None
+    duration: Optional[float] = None
+    user: Optional[int] = None  # User PK (Django int)
+    agent_name: Optional[str] = None
+    trace_group_id: Optional[str] = None
+    finish_reason: Optional[str] = None
+    error: Optional[str] = None
+
+
+class UMTraceGroup(BaseModel):
+    """Pre-aggregated stats for one agent invocation / conversation turn."""
+    id: Optional[str] = None
+    created_at: Optional[int] = None
+    updated_at: Optional[int] = None
+    conversation_id: Optional[str] = None
+    user: Optional[int] = None
+    status: Optional[TraceGroupStatus] = None
+    total_traces: Optional[int] = None
+    total_tokens: Optional[int] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    total_cost: Optional[float] = None
+    total_duration: Optional[float] = None
+    error_count: Optional[int] = None
+
+
+# === Exports ===
+
+class UMExport(BaseModel):
+    """File export record (chat report, extraction, query result, etc.)."""
+    id: Optional[str] = None
+    created_at: Optional[int] = None
+    user: Optional[int] = None
+    filename: str
+    mime_type: str
+    storage_path: str
+    size_bytes: Optional[int] = None
+    source_type: Optional[str] = None  # e.g., "chat_report", "extraction", "query"
+    source_id: Optional[str] = None
 

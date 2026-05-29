@@ -3,7 +3,7 @@ from typing import List, Literal, Optional
 import httpx
 
 from q99_utils.environment import USER_MANAGER_URL
-from q99_utils.models import OnboardingData, UMMessage
+from q99_utils.models import OnboardingData, UMMessage, UMTrace, UMTraceGroup, UMExport
 
 class UserManagerSDK:
     def __init__(self, access_token: str | None = None, *, api_key: str | None = None) -> None:
@@ -123,6 +123,7 @@ class UserManagerSDK:
             "interaction_id": interaction_id,
             "type": message.type,
             "content": message.content,
+            "steps": message.steps,
             "metadata": message.metadata
         }
 
@@ -203,3 +204,63 @@ class UserManagerSDK:
             url=url,
             json={"action": action, "severity": severity, "description": description},
         )
+
+    # === Telemetry: Traces ===
+
+    async def create_trace(self, trace: UMTrace):
+        url = f"{USER_MANAGER_URL}/v1/traces/"
+        return await self._request(method="POST", url=url, json=trace.model_dump(exclude_none=True))
+
+    async def list_traces(self, **filters):
+        """List traces. Supported filters: type, provider, model, user_id, username,
+        agent_name, trace_group_id, has_error, created_at_after, created_at_before,
+        search, ordering, page, page_size."""
+        url = f"{USER_MANAGER_URL}/v1/traces/"
+        params = {k: v for k, v in filters.items() if v is not None}
+        return await self._request(method="GET", url=url, params=params)
+
+    async def get_trace(self, trace_id: str):
+        url = f"{USER_MANAGER_URL}/v1/traces/{trace_id}/"
+        return await self._request(method="GET", url=url)
+
+    # === Telemetry: Trace Groups ===
+
+    async def create_trace_group(self, group: UMTraceGroup):
+        url = f"{USER_MANAGER_URL}/v1/traces-groups/"
+        return await self._request(method="POST", url=url, json=group.model_dump(exclude_none=True))
+
+    async def list_trace_groups(self, **filters):
+        """List trace groups. Supported filters: conversation_id, user_id, username,
+        status, created_at_after, created_at_before, ordering, page, page_size."""
+        url = f"{USER_MANAGER_URL}/v1/traces-groups/"
+        params = {k: v for k, v in filters.items() if v is not None}
+        return await self._request(method="GET", url=url, params=params)
+
+    async def get_trace_group(self, group_id: str):
+        url = f"{USER_MANAGER_URL}/v1/traces-groups/{group_id}/"
+        return await self._request(method="GET", url=url)
+
+    # === Exports ===
+
+    async def create_export(self, export: UMExport):
+        url = f"{USER_MANAGER_URL}/v1/exports/"
+        return await self._request(method="POST", url=url, json=export.model_dump(exclude_none=True))
+
+    async def list_exports(self, **filters):
+        """List exports. Supported filters: source_type, source_id, mime_type,
+        filename, user_id, username, mine, created_at_after, created_at_before,
+        search, ordering, page, page_size."""
+        url = f"{USER_MANAGER_URL}/v1/exports/"
+        params = {k: v for k, v in filters.items() if v is not None}
+        return await self._request(method="GET", url=url, params=params)
+
+    async def get_export(self, export_id: str):
+        url = f"{USER_MANAGER_URL}/v1/exports/{export_id}/"
+        return await self._request(method="GET", url=url)
+
+    async def list_my_exports(self, **filters):
+        """List the authenticated user's exports (admin-status-agnostic).
+        Same filters as list_exports except `mine`/`user_id`/`username` are ignored."""
+        url = f"{USER_MANAGER_URL}/v1/exports/mine/"
+        params = {k: v for k, v in filters.items() if v is not None}
+        return await self._request(method="GET", url=url, params=params)
