@@ -3,7 +3,7 @@ from typing import List, Literal, Optional
 import httpx
 
 from q99_utils.environment import USER_MANAGER_URL
-from q99_utils.models import OnboardingData, UMMessage, UMTrace, UMTraceGroup, UMExport
+from q99_utils.models import OnboardingData, UMMessage, UMTrace, UMTraceGroup, UMExport, UMCrontab, UMTaskSchedule
 
 class UserManagerSDK:
     def __init__(self, access_token: str | None = None, *, api_key: str | None = None) -> None:
@@ -46,12 +46,15 @@ class UserManagerSDK:
             raise HTTPException(
                 status_code=response.status_code,
                 detail=response.text
-            ) # Internal SDK, we don't need raise for status traces.
+            )
+        if response.status_code == 204 or not response.content:
+            return None
 
         if clean_output:
             raw_string = response.content.decode('utf-8').strip('"')
             cleaned_config_data = raw_string.encode('utf-8').decode('unicode_escape')
             return cleaned_config_data
+        
         return response.json()
 
     async def get_credential(
@@ -264,3 +267,30 @@ class UserManagerSDK:
         url = f"{USER_MANAGER_URL}/v1/exports/mine/"
         params = {k: v for k, v in filters.items() if v is not None}
         return await self._request(method="GET", url=url, params=params)
+
+    # === Task Scheduling ===
+
+    async def list_task_schedules(self):
+        """List task definitions visible to the caller, with their current schedule
+        (if any). Non-staff users see only CATEGORY_USER tasks; staff see all."""
+        url = f"{USER_MANAGER_URL}/v1/tasks/"
+        return await self._request(method="GET", url=url)
+
+    async def create_task_schedule(self, schedule: UMTaskSchedule):
+        """Create a schedule for a registered task. The `task_definition` field
+        must be a slug present in UM's TASK_REGISTRY (e.g. 'run_file_discovery').
+        Returns 409 if a schedule already exists — use update_task_schedule instead."""
+        url = f"{USER_MANAGER_URL}/v1/tasks/"
+        return await self._request(method="POST", url=url, json=schedule.model_dump())
+
+    async def update_task_schedule(self, task_name: str, crontab: UMCrontab, enabled: bool = True):
+        """Update the schedule for a task already scheduled by the caller.
+        task_name is the slug (TaskDefinition.name), not a numeric id."""
+        url = f"{USER_MANAGER_URL}/v1/tasks/{task_name}/"
+        payload = {"crontab": crontab.model_dump(), "enabled": enabled}
+        return await self._request(method="PUT", url=url, json=payload)
+
+    async def delete_task_schedule(self, task_name: str):
+        """Delete the caller's schedule for a task. Admin-only for CATEGORY_APP tasks."""
+        url = f"{USER_MANAGER_URL}/v1/tasks/{task_name}/"
+        return await self._request(method="DELETE", url=url)
