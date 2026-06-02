@@ -89,6 +89,14 @@ class UserManagerSDK:
         patch_url = f"{USER_MANAGER_URL}/v1/credentials/{credential_id}/"
         return await self._request(method="PATCH", url=patch_url, json={"root_folders": root_folders})
 
+    async def update_sync_state(self, credential_id: str, sync_cursors: dict, last_sync: str):
+        patch_url = f"{USER_MANAGER_URL}/v1/credentials/{credential_id}/"
+        return await self._request(
+            method="PATCH",
+            url=patch_url,
+            json={"sync_cursors": sync_cursors, "last_sync": last_sync},
+        )
+
     async def activate_credential(self, credential_id:str):
         patch_url = f"{USER_MANAGER_URL}/v1/credentials/{credential_id}/"
 
