@@ -107,10 +107,37 @@ class UserManagerSDK:
 
         return await self._request(method="PATCH", url=patch_url, json={"is_active": False})
 
-    async def validate_token(self):
-        auth_url = f"{USER_MANAGER_URL}/v1/validate/"
+    async def validate_token(
+        self,
+        *,
+        staff_required: bool = False,
+        permissions_required: list[str] | None = None,
+    ):
+        """Ask UM to validate the caller's token against optional policy gates.
 
-        return await self._request(method="GET", url=auth_url, clean_output=True)
+        Both gates are independent and combine with AND semantics on the UM
+        side: a request must satisfy every declared gate to receive a 200.
+
+        - ``staff_required=True`` — the user must have ``is_staff=True``.
+        - ``permissions_required=[...]`` — the user must hold ALL listed
+          codenames (set-subset check). Pass bare codenames like
+          ``"files:read"`` — UM adds the service namespace itself.
+
+        Both arguments are optional; omitting both reduces to a plain
+        "is this token valid for an active user?" check (the legacy behavior).
+
+        Raises ``HTTPException(403)`` on policy failure, ``HTTPException(401)``
+        on an invalid token. Returns the UM response body on success
+        (typically empty/200).
+        """
+        auth_url = f"{USER_MANAGER_URL}/v1/validate/"
+        params: dict = {}
+        if staff_required:
+            params["staff_required"] = "true"
+        if permissions_required:
+            params["permissions_required"] = ",".join(permissions_required)
+
+        return await self._request(method="GET", url=auth_url, params=params, clean_output=True)
 
     async def get_current_user_info(self):
         user_info_url = f"{USER_MANAGER_URL}/v1/user/info/"
