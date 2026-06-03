@@ -45,7 +45,7 @@ class UserManagerSDK:
         if response.status_code >= 400:
             raise HTTPException(
                 status_code=response.status_code,
-                detail=response.text
+                detail=response.json(),
             )
         if response.status_code == 204 or not response.content:
             return None
