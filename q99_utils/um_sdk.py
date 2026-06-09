@@ -278,6 +278,16 @@ class UserManagerSDK:
         url = f"{USER_MANAGER_URL}/v1/traces-groups/{group_id}/"
         return await self._request(method="GET", url=url)
 
+    async def flush_trace_group(self, group: UMTraceGroup, traces: list[UMTrace] | None = None):
+        """Upsert a trace group (by id) and bulk-insert its traces in one atomic call.
+        Used by the engine at flow end. Omit/empty `traces` for a group-only upsert."""
+        url = f"{USER_MANAGER_URL}/v1/traces-groups/flush/"
+        payload = {
+            "group": group.model_dump(exclude_none=True),
+            "traces": [t.model_dump(exclude_none=True) for t in (traces or [])],
+        }
+        return await self._request(method="POST", url=url, json=payload)
+
     # === Exports ===
 
     async def create_export(self, export: UMExport):
