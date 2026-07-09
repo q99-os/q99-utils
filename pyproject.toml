@@ -1,0 +1,29 @@
+[project]
+name = "q99-utils"
+version = "0.2.0"
+description = "Library of common q99 services"
+readme = "README.md"
+authors = [{ name = "Q99" }]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.137.2",
+    "httpx==0.28.1",
+    "pydantic==2.12.5",
+]
+
+[dependency-groups]
+dev = [
+    "pip-audit==2.10.0",
+    "bandit==1.9.4",
+]
+
+[tool.uv]
+# Supply-chain quarantine: reject packages published less than 7 days ago
+exclude-newer = "7 days"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["q99_utils"]
