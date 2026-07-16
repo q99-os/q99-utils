@@ -3,7 +3,10 @@ from typing import List, Literal, Optional
 import httpx
 
 from q99_utils.environment import USER_MANAGER_URL
-from q99_utils.models import OnboardingData, UMMessage, UMTrace, UMTraceGroup, UMExport, UMCrontab, UMTaskSchedule
+from q99_utils.models import (
+    OnboardingData, UMMessage, UMTrace, UMTraceGroup, UMExport, UMCrontab, UMTaskSchedule,
+    UMReport, UMReportSection,
+)
 
 class UserManagerSDK:
     def __init__(self, access_token: str | None = None, *, api_key: str | None = None) -> None:
@@ -312,6 +315,48 @@ class UserManagerSDK:
         url = f"{USER_MANAGER_URL}/v1/exports/mine/"
         params = {k: v for k, v in filters.items() if v is not None}
         return await self._request(method="GET", url=url, params=params)
+
+    # === Reports ===
+
+    async def create_report(self, report: UMReport):
+        """Create a report WITH its full section skeleton (atomic; ≥1 section required).
+        Returns the detail representation including section ids."""
+        url = f"{USER_MANAGER_URL}/v1/reports/"
+        return await self._request(method="POST", url=url, json=report.model_dump())
+
+    async def get_report(self, report_id: str):
+        """Report detail including its sections."""
+        url = f"{USER_MANAGER_URL}/v1/reports/{report_id}/"
+        return await self._request(method="GET", url=url)
+
+    async def list_reports(self, **filters):
+        """List reports. Supported filters: report_type, status, author, page, page_size."""
+        url = f"{USER_MANAGER_URL}/v1/reports/"
+        params = {k: v for k, v in filters.items() if v is not None}
+        return await self._request(method="GET", url=url, params=params)
+
+    async def update_report(self, report_id: str, json: dict):
+        """Patch title/report_type/metadata (status transitions are workflow, not CRUD)."""
+        url = f"{USER_MANAGER_URL}/v1/reports/{report_id}/"
+        return await self._request(method="PATCH", url=url, json=json)
+
+    async def delete_report(self, report_id: str):
+        """Soft-delete (is_active=False on the UM side)."""
+        url = f"{USER_MANAGER_URL}/v1/reports/{report_id}/"
+        return await self._request(method="DELETE", url=url)
+
+    async def add_report_section(self, report_id: str, section: UMReportSection):
+        """Add a section to an existing (non-finalized) report; UM records the tracing row."""
+        url = f"{USER_MANAGER_URL}/v1/report-sections/"
+        return await self._request(
+            method="POST", url=url, json={"report": report_id, **section.model_dump()}
+        )
+
+    async def update_report_section(self, section_id: str, json: dict):
+        """Patch a section (typically `content`); UM records the tracing row with the
+        caller as actor (engine Api-Key → agent, user token → user)."""
+        url = f"{USER_MANAGER_URL}/v1/report-sections/{section_id}/"
+        return await self._request(method="PATCH", url=url, json=json)
 
     # === Task Scheduling ===
 

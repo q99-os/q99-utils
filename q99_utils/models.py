@@ -138,6 +138,24 @@ class UMExport(BaseModel):
     source_id: Optional[str] = None
 
 
+# === Reports ===
+
+class UMReportSection(BaseModel):
+    """One section of a generated report — the mutable working copy lives in UM."""
+    name: str
+    order: int
+    content: dict = {}
+
+
+class UMReport(BaseModel):
+    """Report creation payload (report + full section skeleton, atomic).
+    Author is resolved by UM from the caller's token."""
+    report_type: str
+    title: str
+    metadata: dict
+    sections: list[UMReportSection]
+
+
 # === Task Scheduling ===
 
 class UMCrontab(BaseModel):
