@@ -145,6 +145,7 @@ class UMReportSection(BaseModel):
     name: str
     section_order: int
     content: dict = {}
+    metadata: dict = {}
 
 
 class UMReport(BaseModel):
