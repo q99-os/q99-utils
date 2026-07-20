@@ -143,7 +143,7 @@ class UMExport(BaseModel):
 class UMReportSection(BaseModel):
     """One section of a generated report — the mutable working copy lives in UM."""
     name: str
-    order: int
+    section_order: int
     content: dict = {}
 
 
