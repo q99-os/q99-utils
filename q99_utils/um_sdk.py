@@ -358,6 +358,27 @@ class UserManagerSDK:
         url = f"{USER_MANAGER_URL}/v1/report-sections/{section_id}/"
         return await self._request(method="PATCH", url=url, json=json)
 
+    async def list_report_comments(self, report_id: str, **filters):
+        """Comments on a report — section-anchored discussion and general notes, each with a
+        `resolved` flag (filter to open ones client-side) and an optional `section` (null =
+        general comment). Scoped to one report by `report_id`."""
+        url = f"{USER_MANAGER_URL}/v1/report-comments/"
+        params = {"report": report_id, **{k: v for k, v in filters.items() if v is not None}}
+        return await self._request(method="GET", url=url, params=params)
+
+    async def create_report_comment(self, report_id: str, body: str,
+                                    section_id: str | None = None, parent_id: str | None = None):
+        """Add a comment to a report — general, or anchored to a section (`section_id`), optionally
+        as a reply to a top-level comment (`parent_id`). Authored as the SDK caller; UM gates
+        eligibility (report author or a permitted reviewer)."""
+        url = f"{USER_MANAGER_URL}/v1/report-comments/"
+        payload = {"report": report_id, "body": body}
+        if section_id is not None:
+            payload["section"] = section_id
+        if parent_id is not None:
+            payload["parent"] = parent_id
+        return await self._request(method="POST", url=url, json=payload)
+
     # === Task Scheduling ===
 
     async def list_task_schedules(self):
