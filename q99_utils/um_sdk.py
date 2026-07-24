@@ -379,6 +379,13 @@ class UserManagerSDK:
             payload["parent"] = parent_id
         return await self._request(method="POST", url=url, json=payload)
 
+    async def list_report_versions(self, report_id: str, **filters):
+        """Report versions (submitted-for-review snapshots) — each with version_number, created_at,
+        submitted_by, and nested reviews (reviewer + verdict + date). Scoped by `report_id`."""
+        url = f"{USER_MANAGER_URL}/v1/report-versions/"
+        params = {"report": report_id, **{k: v for k, v in filters.items() if v is not None}}
+        return await self._request(method="GET", url=url, params=params)
+
     # === Task Scheduling ===
 
     async def list_task_schedules(self):
