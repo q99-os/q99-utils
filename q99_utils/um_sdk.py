@@ -175,17 +175,20 @@ class UserManagerSDK:
                             conversation_id:Optional[str] = None,
                             parent_interaction_id:Optional[str] = None,
                             title:Optional[str] = None,
+                            feature:Optional[str] = None,
                             ):
         chat_url = f"{USER_MANAGER_URL}/v1/history/conversation/"
 
         payload = {"messages":[message.model_dump()]}
-        
+
         if conversation_id is not None:
             payload["conversation_id"] = conversation_id
         if parent_interaction_id is not None:
             payload["parent_interaction"] = parent_interaction_id # que alguien me explique porq este no tiene id ._. // Porque no todos tienen ocd como vos' id = _id nmw
         if title is not None:
             payload["title"] = title
+        if feature is not None:
+            payload["feature"] = feature # only read by UM when creating a new conversation
         
         return await self._request(method="POST", url=chat_url, json=payload)
         
