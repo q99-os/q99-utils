@@ -382,6 +382,19 @@ class UserManagerSDK:
             payload["parent"] = parent_id
         return await self._request(method="POST", url=url, json=payload)
 
+    async def resolve_report_comment(self, comment_id: str):
+        """Mark a comment resolved. UM allows the report author, the comment author or an admin;
+        resolving a top-level comment cascades to its open replies."""
+        url = f"{USER_MANAGER_URL}/v1/report-comments/{comment_id}/resolve/"
+        return await self._request(method="POST", url=url)
+
+    async def delete_report_comment(self, comment_id: str):
+        """Remove a comment (UM soft-deletes; it drops out of every listing). Only the comment's
+        own author can delete it, and only while it is unresolved — resolved history is
+        immutable."""
+        url = f"{USER_MANAGER_URL}/v1/report-comments/{comment_id}/"
+        return await self._request(method="DELETE", url=url)
+
     async def list_report_versions(self, report_id: str, **filters):
         """Report versions (submitted-for-review snapshots) — each with version_number, created_at,
         submitted_by, and nested reviews (reviewer + verdict + date). Scoped by `report_id`."""
