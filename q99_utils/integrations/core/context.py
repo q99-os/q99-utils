@@ -1,5 +1,3 @@
-"""What the host hands every integration: config plus its port adapters."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field

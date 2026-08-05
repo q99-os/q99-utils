@@ -1,12 +1,10 @@
-"""GreenAPI (WhatsApp) integration — instance lifecycle and status."""
-
 from __future__ import annotations
 
 import httpx
 
-from q99_utils.integrations.base import SourceIntegrationInterface
-from q99_utils.integrations.registry import register
-from q99_utils.models import OnboardingData, SourceEnum
+from q99_utils.integrations.core import SourceIntegrationInterface, register
+from q99_utils.enums import SourceEnum
+from q99_utils.models import OnboardingData
 
 PROD_API_URL = "https://green-api.com"
 SANDBOX_API_URL = "https://7107.api.green-api.com"

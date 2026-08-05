@@ -1,7 +1,6 @@
 """Port for reading what the host has already ingested.
 
-``reference_patterns`` are SQL-LIKE patterns OR'd together. Each integration
-builds its own, since path conventions differ per provider.
+``reference_patterns`` are SQL-LIKE patterns OR'd together.
 """
 
 from __future__ import annotations

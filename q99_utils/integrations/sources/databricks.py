@@ -1,8 +1,4 @@
-"""Databricks integration — SQL over the Statements REST API.
-
-Holds no driver: every statement is an HTTP round-trip, so it extends the plain
-source interface rather than :class:`SqlIntegrationBase`.
-"""
+"""Databricks — SQL over the Statements REST API, so it holds no driver."""
 
 from __future__ import annotations
 
@@ -10,14 +6,8 @@ import re
 
 import httpx
 
-from q99_utils.integrations.base import SourceIntegrationInterface
-from q99_utils.integrations.registry import register
-from q99_utils.models import SourceEnum
-
-# Databricks built-in catalogs that should never be surfaced to users.
-# 'samples' contains demo/sample datasets; 'system' contains internal
-# telemetry, billing, audit, and metadata tables.
-IGNORED_CATALOGS = {"system", "samples"}
+from q99_utils.integrations.core import SourceIntegrationInterface, register
+from q99_utils.enums import SourceEnum
 
 
 @register(SourceEnum.databricks)
@@ -177,4 +167,4 @@ class DatabricksIntegration(SourceIntegrationInterface):
         return "databricks"
 
 
-__all__ = ["DatabricksIntegration", "IGNORED_CATALOGS"]
+__all__ = ["DatabricksIntegration"]

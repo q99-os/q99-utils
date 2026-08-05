@@ -1,8 +1,4 @@
-"""Ports for object storage.
-
-The real S3/Blob/GCS clients live in the host's cloud-services library; these
-protocols keep that private git dependency out of q99-utils.
-"""
+"""Ports for object storage; the real S3/Blob/GCS clients stay host-side."""
 
 from __future__ import annotations
 
@@ -46,8 +42,6 @@ class StorageServiceFactory(Protocol):
 
 
 class ManagedBucket(NamedTuple):
-    """The host's own object-storage bucket, resolved at runtime."""
-
     cloud_provider: str
     bucket_name: str
     storage_creds: Dict[str, Any]

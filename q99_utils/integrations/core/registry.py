@@ -1,16 +1,12 @@
-"""Source to integration-class registry.
-
-Integrations register themselves with :func:`register`; the host just asks for
-one instead of maintaining a lookup dict by hand.
-"""
+"""Source to integration-class registry; integrations register themselves."""
 
 from __future__ import annotations
 
 from typing import Dict, Optional, Type
 
-from q99_utils.integrations.base import SourceIntegrationInterface
-from q99_utils.integrations.context import IntegrationContext
-from q99_utils.models import SourceEnum
+from q99_utils.integrations.core.source import SourceIntegrationInterface
+from q99_utils.integrations.core.context import IntegrationContext
+from q99_utils.enums import SourceEnum
 from q99_utils.um_sdk import UserManagerSDK
 
 _REGISTRY: Dict[str, Type[SourceIntegrationInterface]] = {}
@@ -41,7 +37,6 @@ def register_alias(name: str, cls: Type[SourceIntegrationInterface]) -> None:
 def get_integration_class(
     source: SourceEnum | str,
 ) -> Optional[Type[SourceIntegrationInterface]]:
-    """Return the class registered for *source*, or None if there is none."""
     return _REGISTRY.get(str(source))
 
 
@@ -62,7 +57,6 @@ def create_integration(
 
 
 def registered_sources() -> Dict[str, Type[SourceIntegrationInterface]]:
-    """Snapshot of the registry — for diagnostics and tests."""
     return dict(_REGISTRY)
 
 

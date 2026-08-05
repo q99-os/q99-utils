@@ -1,14 +1,11 @@
-"""Azure AD integration — Microsoft Graph token acquisition and connectivity test."""
-
 from __future__ import annotations
 
 import httpx
 
-from q99_utils.integrations.base import SourceIntegrationInterface
-from q99_utils.integrations.exceptions import CredentialValidationError
-from q99_utils.integrations.registry import register
+from q99_utils.integrations.core import CredentialValidationError, SourceIntegrationInterface, register
 from q99_utils.logger import get_logger
-from q99_utils.models import OnboardingData, SourceEnum
+from q99_utils.enums import SourceEnum
+from q99_utils.models import OnboardingData
 
 logger = get_logger(__name__)
 
@@ -45,7 +42,6 @@ class AzureADIntegration(SourceIntegrationInterface):
         return token
 
     async def test_connection(self, data: OnboardingData):
-        """Verify the app registration can authenticate and read groups."""
         try:
             access_token = await self.get_access_token(data=data)
         except httpx.HTTPError:

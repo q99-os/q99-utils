@@ -1,6 +1,6 @@
 """In-memory stand-ins for the ports, so tests need no database or app."""
 
-from q99_utils.models import SourceEnum
+from q99_utils.enums import SourceEnum
 
 
 class FakeDriver:

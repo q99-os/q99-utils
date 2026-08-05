@@ -9,12 +9,13 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from q99_utils.integrations.exceptions import CredentialValidationError
+from q99_utils.integrations.core.exceptions import CredentialValidationError
 from q99_utils.integrations.sources.azure_ad import (
     GRAPH_GROUPS_URL,
     AzureADIntegration,
 )
-from q99_utils.models import OnboardingData, SourceEnum
+from q99_utils.enums import SourceEnum
+from q99_utils.models import OnboardingData
 
 TOKEN_URL_FRAGMENT = "login.microsoftonline.com"
 

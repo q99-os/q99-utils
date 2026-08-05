@@ -1,5 +1,3 @@
-"""Local filesystem integration."""
-
 from __future__ import annotations
 
 import asyncio
@@ -9,17 +7,20 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from q99_utils.integrations.base import SourceIntegrationInterface
-from q99_utils.integrations.models import DiscoveredFile, ResourceNode
-from q99_utils.integrations.registry import register
+from q99_utils.integrations.core import SourceIntegrationInterface, register
+from q99_utils.integrations.discovery import DiscoveredFile, ResourceNode
+
 from q99_utils.logger import get_logger
-from q99_utils.models import OnboardingData, SourceEnum
+from q99_utils.enums import SourceEnum
+from q99_utils.models import OnboardingData
 
 logger = get_logger(__name__)
 
 
 @register(SourceEnum.local_files)
 class LocalFilesIntegration(SourceIntegrationInterface):
+
+    # File download (used during ingestion pipeline)
 
     async def get_files_from_path(
         self,
@@ -53,6 +54,8 @@ class LocalFilesIntegration(SourceIntegrationInterface):
     async def get_access_token(self):
         ...
 
+    # File discovery (used during onboarding)
+
     async def files_discovery(self) -> Tuple[List[DiscoveredFile], None]:
 
         credentials: OnboardingData = await self.get_credentials()
@@ -67,7 +70,6 @@ class LocalFilesIntegration(SourceIntegrationInterface):
             if root_prefix and not root_prefix.endswith(os.sep):
                 root_prefix = f"{root_prefix}{os.sep}"
 
-            # References are stored with the OS separator.
             patterns = [f"{root_prefix}%"] if root_prefix else None
 
             if self.credential_id and store:
@@ -80,14 +82,12 @@ class LocalFilesIntegration(SourceIntegrationInterface):
                 ingested_paths = set()
 
             if self.credential_id and root_prefix and store:
-                # No trustworthy provider timestamp here, so compare against
-                # when we last ingested.
-                latest_created_at = await store.latest_ingested_at(
+                latest_ingested_at = await store.latest_ingested_at(
                     credential_id=self.credential_id,
                     reference_patterns=patterns,
                 )
             else:
-                latest_created_at = 0
+                latest_ingested_at = 0
 
             for root, _, files in os.walk(root_folder):
                 for file in files:
@@ -100,7 +100,7 @@ class LocalFilesIntegration(SourceIntegrationInterface):
                         file_mtime = int(os.path.getmtime(file_path))
                     except Exception:
                         continue
-                    if file_mtime <= latest_created_at:
+                    if file_mtime <= latest_ingested_at:
                         continue
 
                     try:
@@ -122,8 +122,9 @@ class LocalFilesIntegration(SourceIntegrationInterface):
 
         return d_files, None
 
+    # Tree browsing
+
     async def list_tree(self, path: str = "") -> Tuple[List[ResourceNode], bool]:
-        """List immediate subfolders of *path* (empty = configured roots)."""
         credentials: OnboardingData = await self.get_credentials()
         roots = [path] if path else (credentials.root_folders or [os.getcwd()])
         return await asyncio.to_thread(self._build_tree_sync, roots)

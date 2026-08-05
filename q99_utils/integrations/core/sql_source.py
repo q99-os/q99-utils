@@ -1,14 +1,10 @@
-"""Shared connect / cache / close behaviour for SQL-backed integrations.
-
-Postgres, MSSQL and BigQuery each had their own copy of this, differing only in
-which driver they built and which dialect they reported.
-"""
+"""Shared connect / cache / close behaviour for SQL-backed integrations."""
 
 from __future__ import annotations
 
 from typing import List, Optional
 
-from q99_utils.integrations.base import SourceIntegrationInterface
+from q99_utils.integrations.core.source import SourceIntegrationInterface
 from q99_utils.integrations.ports import SqlDriver
 from q99_utils.logger import get_logger
 
@@ -16,23 +12,21 @@ logger = get_logger(__name__)
 
 
 class SqlIntegrationBase(SourceIntegrationInterface):
-    """Base for integrations that expose a live SQL connection."""
+    """Base for integrations that expose a live SQL connection.
 
-    #: sqlglot dialect name (postgres, tsql, bigquery, databricks).
+    ``SQL_DIALECT`` is the sqlglot dialect name (postgres, tsql, bigquery).
+    ``SQL_BACKEND`` is which driver the host must build — a separate value,
+    since MSSQL speaks 'tsql' through an 'mssql' driver, and since a facade like
+    OpenWells overrides the source while still running on this class.
+    """
+
     SQL_DIALECT: str = ""
-
-    #: Which driver the host must build for this integration. Distinct from
-    #: SQL_DIALECT (MSSQL speaks 'tsql' but its driver is 'mssql') and from the
-    #: source, which a facade like OpenWells overrides while still running on
-    #: this class.
     SQL_BACKEND: str = ""
 
     def _connection_key(self, connection_key: Optional[str] = None) -> str:
-        """Explicit key, then credential id, then the source name."""
         return str(connection_key or self.credential_id or self.source)
 
     async def set_live_conn(self, connection_key: Optional[str] = None) -> SqlDriver:
-        """Return the cached driver for this credential, building it on first use."""
         key = self._connection_key(connection_key)
 
         driver = self.context.connections.get(key)
@@ -61,7 +55,6 @@ class SqlIntegrationBase(SourceIntegrationInterface):
         tables: Optional[List[str]] = None,
         exclude_empty: bool = False,
     ) -> str:
-        """Return an LLM-ready description of the backend's schema."""
         driver = await self.set_live_conn()
         return await driver.get_schema(tables=tables, exclude_empty=exclude_empty)
 

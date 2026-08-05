@@ -1,19 +1,22 @@
-"""Source integrations.
+"""Source integrations. Importing this package registers all of them."""
 
-Importing this package registers every concrete integration, so a host only
-needs ``create_integration(source, um_sdk, context)``.
-"""
-
-from q99_utils.integrations.base import SourceIntegrationInterface
-from q99_utils.integrations.context import IntegrationConfig, IntegrationContext
-from q99_utils.integrations.exceptions import (
+from q99_utils.integrations.core import (
     CredentialValidationError,
+    IntegrationConfig,
+    IntegrationContext,
     IntegrationError,
+    SourceIntegrationInterface,
+    SqlIntegrationBase,
+    create_integration,
+    get_integration_class,
+    register,
+    register_alias,
+    registered_sources,
 )
-from q99_utils.integrations.models import (
+from q99_utils.integrations.mappers import OpenWellsAgentMapper, OpenWellsEDMMapper
+from q99_utils.integrations.discovery import (
     ChangeKind,
     DiscoveredFile,
-    PermissionTokens,
     ResourceNode,
     discoveredFile,
 )
@@ -29,14 +32,6 @@ from q99_utils.integrations.ports import (
     StorageService,
     StorageServiceFactory,
 )
-from q99_utils.integrations.registry import (
-    create_integration,
-    get_integration_class,
-    register,
-    register_alias,
-    registered_sources,
-)
-from q99_utils.integrations.sql_base import SqlIntegrationBase
 
 # Imported for its side effect: applying @register to every concrete integration.
 from q99_utils.integrations import sources as sources
@@ -49,11 +44,12 @@ __all__ = [
     "IntegrationContext",
     "IntegrationError",
     "CredentialValidationError",
+    "OpenWellsAgentMapper",
+    "OpenWellsEDMMapper",
     "ChangeKind",
     "DiscoveredFile",
     "discoveredFile",
     "ResourceNode",
-    "PermissionTokens",
     "ConnectionRegistry",
     "FileReferenceStore",
     "InMemoryConnectionRegistry",

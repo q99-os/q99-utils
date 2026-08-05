@@ -10,30 +10,48 @@ supplied by the host.
 ## Layout
 
 ```
-q99_utils/
-├── logger.py                   library logger (NullHandler, no config)
-└── integrations/
-    ├── base.py                 SourceIntegrationInterface — the contract
-    ├── sql_base.py             SqlIntegrationBase — connect / cache / close
-    ├── context.py              IntegrationContext + IntegrationConfig
-    ├── registry.py             @register, register_alias, create_integration
-    ├── models.py               DiscoveredFile, ResourceNode, ChangeKind, PermissionTokens
-    ├── exceptions.py           IntegrationError, CredentialValidationError
-    ├── ports/                  what the host must provide
-    │   ├── sql.py              SqlDriver, SqlDriverFactory, ConnectionRegistry
-    │   ├── files.py            FileReferenceStore, IndexedFile
-    │   └── storage.py          StorageService, StorageServiceFactory, ManagedBucketProvider
-    └── sources/                one integration per module
-        ├── slack.py  greenapi.py  azure_ad.py  databricks.py
-        ├── postgres.py  mssql.py  bigquery.py
-        └── local_files.py  bucket.py
+q99_utils/integrations/
+├── core/                       the machinery every integration is built on
+│   ├── source.py               SourceIntegrationInterface — the contract
+│   ├── sql_source.py           SqlIntegrationBase — connect / cache / close
+│   ├── context.py              IntegrationContext + IntegrationConfig
+│   ├── registry.py             @register, register_alias, create_integration
+│   ├── exceptions.py           IntegrationError, CredentialValidationError
+│   └── change_detection.py     classify_change — what changed about an indexed file
+├── discovery.py                DiscoveredFile, ResourceNode, ChangeKind
+├── ports/                      what the host must provide
+│   ├── sql.py                  SqlDriver, SqlDriverFactory, ConnectionRegistry
+│   ├── files.py                FileReferenceStore, IndexedFile
+│   └── storage.py              StorageService, StorageServiceFactory, ManagedBucketProvider
+├── sources/                    one integration per module, named after its source
+│   ├── slack.py                greenapi.py   azure_ad.py     databricks.py
+│   ├── postgres.py             mssql.py      bigquery.py     openwells.py
+│   └── local_files.py          bucket.py     sharepoint.py   google_drive.py
+└── mappers/                    query layers over a source's own schema
+    ├── openwells_base.py       OpenWellsAgentMapper (the contract)
+    └── openwells_edm.py        OpenWellsEDMMapper (the EDM SQL)
 
 tests/integrations/
 ├── fakes.py                    in-memory stand-in per port
 ├── test_registry_and_context.py
-├── test_permission_tokens.py
+├── test_change_detection.py
 └── sources/                    one module per integration
 ```
+
+The ACL vocabulary (`PermissionTokens`) lives in `q99_utils.models` — the host's
+security layer builds user-side tokens with the same class.
+
+## Extras
+
+| Extra | Needed for |
+|---|---|
+| `google` | the Google Drive integration |
+| `openwells` | OpenWells on any backend other than MSSQL (SQL is transpiled at query time) |
+
+`sources/` and `mappers/` are different things. A source integration is
+registered and built through `create_integration`; a mapper is not — it takes
+the connection a source opened and knows the SQL to ask domain questions of it.
+Agents import mappers directly.
 
 ## How a call flows
 
