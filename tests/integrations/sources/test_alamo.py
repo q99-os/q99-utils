@@ -12,10 +12,11 @@ from datetime import datetime
 import httpx
 import pytest
 
-from q99_utils.integrations.exceptions import CredentialValidationError, IntegrationError
-from q99_utils.integrations.registry import get_integration_class
+from q99_utils.integrations.core.exceptions import CredentialValidationError, IntegrationError
+from q99_utils.integrations.core.registry import get_integration_class
 from q99_utils.integrations.sources.alamo import ENDPOINT_LIMITS, AlamoIntegration
-from q99_utils.models import OnboardingData, SourceEnum
+from q99_utils.enums import SourceEnum
+from q99_utils.models import OnboardingData
 from tests.integrations.fakes import FakeUserManagerSDK, HttpRecorder
 
 

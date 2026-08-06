@@ -1,8 +1,4 @@
-"""Errors raised by integrations.
-
-Framework-agnostic on purpose: deciding HTTP status codes is the host's job,
-not a library's. See the README for how to map them.
-"""
+"""Framework-agnostic errors: status codes are the host's call, not a library's."""
 
 from __future__ import annotations
 

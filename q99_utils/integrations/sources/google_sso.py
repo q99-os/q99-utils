@@ -27,11 +27,14 @@ from typing import Optional
 
 import httpx
 
-from q99_utils.integrations.base import SourceIntegrationInterface
-from q99_utils.integrations.exceptions import CredentialValidationError
-from q99_utils.integrations.registry import register
+from q99_utils.integrations.core import (
+    CredentialValidationError,
+    SourceIntegrationInterface,
+    register,
+)
 from q99_utils.logger import get_logger
-from q99_utils.models import OnboardingData, SourceEnum
+from q99_utils.enums import SourceEnum
+from q99_utils.models import OnboardingData
 
 logger = get_logger(__name__)
 

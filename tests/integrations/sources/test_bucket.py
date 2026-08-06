@@ -10,7 +10,7 @@ import pytest
 
 from q99_utils.integrations import IntegrationConfig, IntegrationContext, ManagedBucket
 from q99_utils.integrations.sources import BucketIntegration
-from q99_utils.models import SourceEnum
+from q99_utils.enums import SourceEnum
 
 from tests.integrations.fakes import FakeFileStore, FakeUserManagerSDK
 

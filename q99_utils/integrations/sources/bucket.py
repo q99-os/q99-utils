@@ -1,5 +1,3 @@
-"""Cloud-agnostic object-storage integration (S3 / Azure Blob / GCS)."""
-
 from __future__ import annotations
 
 import asyncio
@@ -8,13 +6,12 @@ import os
 from io import BytesIO
 from typing import Any, Dict, List, Optional, Tuple
 
-from q99_utils.integrations.base import SourceIntegrationInterface
-from q99_utils.integrations.context import IntegrationContext
-from q99_utils.integrations.models import DiscoveredFile, ResourceNode
-from q99_utils.integrations.registry import register
+from q99_utils.integrations.core import IntegrationContext, SourceIntegrationInterface, register
+from q99_utils.integrations.discovery import DiscoveredFile, ResourceNode
+
 from q99_utils.integrations.ports import StorageService
 from q99_utils.logger import get_logger
-from q99_utils.models import SourceEnum
+from q99_utils.enums import SourceEnum
 from q99_utils.um_sdk import UserManagerSDK
 
 logger = get_logger(__name__)
@@ -105,26 +102,7 @@ class BucketIntegration(SourceIntegrationInterface):
         except Exception as e:
             logger.debug(f"[BucketIntegration] No external credentials for source={self.source}: {e}")
 
-    def _extract_provider_creds(self, config: dict):
-        """Extract provider-specific credentials from a raw credential dict."""
-        if self.cloud_provider == AWS:
-            if config.get("aws_key"):
-                self._external_creds["aws_key"] = config["aws_key"]
-            if config.get("aws_secret"):
-                self._external_creds["aws_secret"] = config["aws_secret"]
-            if config.get("aws_url"):
-                self._external_creds["aws_url"] = config["aws_url"]
-            if config.get("aws_region"):
-                self._external_creds["aws_region"] = config["aws_region"]
-        elif self.cloud_provider == AZURE:
-            if config.get("connection_string"):
-                self._external_creds["connection_string"] = config["connection_string"]
-        elif self.cloud_provider == GCP:
-            if config.get("service_account_json"):
-                self._external_creds["service_account_json"] = config["service_account_json"]
-
     def _extract_provider_creds_from_onboarding(self, creds):
-        """Extract provider-specific credentials from OnboardingData."""
         if self.cloud_provider == AWS:
             if getattr(creds, "api_key", None):
                 self._external_creds["aws_key"] = creds.api_key
@@ -156,7 +134,6 @@ class BucketIntegration(SourceIntegrationInterface):
 
     @staticmethod
     def _provider_from_scheme(scheme: Optional[str]) -> Optional[str]:
-        """Derive the storage provider key from a URI scheme."""
         if not scheme:
             return None
         return PROVIDER_BY_BUCKET_SOURCE.get(scheme.lower())
@@ -167,7 +144,6 @@ class BucketIntegration(SourceIntegrationInterface):
 
     @staticmethod
     def _reference_patterns(resolved_prefix: str) -> Optional[List[str]]:
-        """LIKE patterns matching the prefix itself and everything under it."""
         if not resolved_prefix:
             return None
         return [resolved_prefix, f"{resolved_prefix}/%"]
@@ -186,13 +162,10 @@ class BucketIntegration(SourceIntegrationInterface):
 
         config = config or {}
         source_scheme, source_bucket, source_key = self._split_reference(file_path)
-        # Priority: explicit config > URI scheme > self (source / default)
         scheme_provider = self._provider_from_scheme(source_scheme)
         cloud_provider = str(config.get("cloud_provider", scheme_provider or self.cloud_provider))
         bucket_name = config.get("bucket_name") or source_bucket or self.bucket_name
 
-        # Only pass external creds when the resolved provider matches our own;
-        # otherwise the creds are for a different cloud and would be invalid.
         cloud_storage = self._storage(
             cloud_provider, with_credentials=cloud_provider == self.cloud_provider
         )
@@ -228,8 +201,6 @@ class BucketIntegration(SourceIntegrationInterface):
 
         resolved_bucket = bucket_name or self.bucket_name
 
-        # Determine prefixes to discover:
-        #   explicit arg > root_paths_override (set by discovery service per root) > configured prefixes > whole bucket
         if prefix:
             prefixes_to_scan = [prefix]
         else:
@@ -240,35 +211,23 @@ class BucketIntegration(SourceIntegrationInterface):
         all_discovered: List[DiscoveredFile] = []
         cloud_storage = self._storage(self.cloud_provider)
 
-        if self.credential_id and store:
-            for pfx in prefixes_to_scan:
-                check_prefix = self._normalize_prefix(pfx)
-                like_pattern = f"{check_prefix}/%" if check_prefix else "%"
-                indexed = await store.has_indexed_files(
-                    credential_id=self.credential_id,
-                    source=str(self.source),
-                    reference_patterns=[like_pattern],
-                )
-                if not indexed:
-                    logger.info(f"[BucketIntegration] New root detected (no indexed files): {pfx}")
-
         for scan_prefix in prefixes_to_scan:
             resolved_prefix = self._normalize_prefix(scan_prefix)
 
             if self.credential_id and store:
-                latest_created_at = await store.latest_source_modified_at(
+                latest_modified_at = await store.latest_source_modified_at(
                     credential_id=self.credential_id,
                     source=str(self.source),
                     reference_patterns=self._reference_patterns(resolved_prefix),
                 )
             else:
-                latest_created_at = 0
+                latest_modified_at = 0
 
             try:
                 discovered_objects = await cloud_storage.files_discovery(
                     resolved_bucket,
                     ingested_paths,
-                    latest_created_at,
+                    latest_modified_at,
                     max_file_size_mb=self.config.upload_max_size_mb,
                     prefix=resolved_prefix,
                 )
@@ -293,7 +252,6 @@ class BucketIntegration(SourceIntegrationInterface):
         return all_discovered, None
 
     async def list_tree(self, path: str = "") -> Tuple[List[ResourceNode], bool]:
-        """List immediate folders of *path* (empty = configured prefixes)."""
         await self._load_external_config()
 
         cloud_storage = self._storage(self.cloud_provider)

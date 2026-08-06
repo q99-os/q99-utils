@@ -1,8 +1,4 @@
-"""What an integration needs from its host.
-
-Structural protocols: the host satisfies them by shape, so this package stays
-free of SQLAlchemy, FastAPI and friends, and tests can pass plain fakes.
-"""
+"""What an integration needs from its host, as structural protocols."""
 
 from q99_utils.integrations.ports.files import FileReferenceStore, IndexedFile
 from q99_utils.integrations.ports.sql import (

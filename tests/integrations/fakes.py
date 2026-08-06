@@ -2,7 +2,7 @@
 
 import httpx
 
-from q99_utils.models import SourceEnum
+from q99_utils.enums import SourceEnum
 
 
 class FakeDriver:

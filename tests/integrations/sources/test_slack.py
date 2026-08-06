@@ -11,7 +11,8 @@ import httpx
 import pytest
 
 from q99_utils.integrations.sources.slack import SLACK_AUTH_TEST_URL, SlackIntegration
-from q99_utils.models import OnboardingData, SourceEnum
+from q99_utils.enums import SourceEnum
+from q99_utils.models import OnboardingData
 
 
 def _response(status_code: int, *, json=None, text=None) -> httpx.Response:

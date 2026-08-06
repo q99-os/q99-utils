@@ -11,6 +11,18 @@ dependencies = [
     "pydantic==2.12.5",
 ]
 
+[project.optional-dependencies]
+# Google Drive talks to the Drive API through Google's own SDK. Kept optional so
+# consumers that don't onboard Drive aren't forced to install it.
+google = [
+    "google-api-python-client==2.154.0",
+    "google-auth==2.43.0",
+]
+# OpenWells' canonical SQL is T-SQL; anything else is transpiled at query time.
+openwells = [
+    "sqlglot==30.0.1",
+]
+
 [dependency-groups]
 dev = [
     "pip-audit==2.10.0",

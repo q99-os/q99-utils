@@ -6,7 +6,7 @@ tokens, integrations build file-side ones, and access is string equality.
 
 from __future__ import annotations
 
-from q99_utils.integrations import PermissionTokens
+from q99_utils.models import PermissionTokens
 
 
 def test_constant_tokens():

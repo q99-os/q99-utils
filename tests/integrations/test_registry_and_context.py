@@ -20,7 +20,7 @@ from q99_utils.integrations.sources import (
     GreenAPIIntegration,
     SlackIntegration,
 )
-from q99_utils.models import SourceEnum
+from q99_utils.enums import SourceEnum
 
 from tests.integrations.fakes import FakeDriver, FakeDriverFactory, FakeUserManagerSDK
 

@@ -1,17 +1,15 @@
-"""Contract every source integration implements.
-
-Subclasses override only what their provider supports; the defaults here are
-the safe behaviour for the ones that don't.
-"""
+"""Contract every source integration implements."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from q99_utils.integrations.context import IntegrationContext
-from q99_utils.integrations.models import PermissionTokens, ResourceNode
-from q99_utils.models import OnboardingData, SourceEnum
+from q99_utils.integrations.core.context import IntegrationContext
+from q99_utils.integrations.discovery import DiscoveredFile, ResourceNode
+from q99_utils.models import PermissionTokens
+from q99_utils.enums import SourceEnum
+from q99_utils.models import OnboardingData
 from q99_utils.um_sdk import UserManagerSDK
 
 
@@ -25,16 +23,12 @@ class SourceIntegrationInterface:
         self.um_sdk = um_sdk
         self.source = source
         self.context = context or IntegrationContext()
-        # Set by the ingestion pipeline when a specific credential is known
-        # (from files_references.credential_id) — allows multi-credential disambiguation.
         self.credential_id: Optional[str] = None
-        # When set by DiscoveryService, overrides credentials.root_folders so
-        # files_discovery() walks these paths instead of the ones stored in UM.
         self.root_paths_override: Optional[List[str]] = None
+        self.credentials: Optional[Dict[str, Any]] = None
 
     @property
     def config(self):
-        """Shorthand for ``self.context.config``."""
         return self.context.config
 
     async def get_credentials(self) -> OnboardingData:
@@ -42,19 +36,14 @@ class SourceIntegrationInterface:
             raise ValueError(
                 f"credential_id must be set before get_credentials() (source '{self.source}')"
             )
-        # Direct lookup by ID — works regardless of active/inactive status
-        # and avoids filtering ambiguity for multi-credential sources.
         credential = await self.um_sdk.get_credential(credential_id=self.credential_id)
         self.credentials = credential
         creds = OnboardingData(**credential)
-        # Allow the discovery service to scope a walk to specific paths
-        # without modifying the stored credential.
         if self.root_paths_override:
             creds.root_folders = self.root_paths_override
         return creds
 
     async def list_tree(self, path: str = "") -> Tuple[List[ResourceNode], bool]:
-        """List immediate folder children of *path* (empty = source root). Base returns none."""
         return [], False
 
     @classmethod
@@ -68,21 +57,51 @@ class SourceIntegrationInterface:
         The base implementation grants admin-only access — the correct default
         for sources without per-file ACLs (S3, local files, databases, etc.).
         Admins can re-grant broader access manually.
+
+        Not strictly substitutable: SharePoint's override also takes a resolved
+        group-name map, so callers hold a concrete class, not this interface.
         """
         return [PermissionTokens.ADMIN_ONLY]
 
-    async def resolve_permissions(self, requested: List[str] | None = None) -> List[str]:
-        """Determine effective permissions for discovered file references.
+    async def files_discovery(self) -> Tuple[List[DiscoveredFile], Optional[dict]]:
+        """Discover files for this credential.
 
-        Each integration decides how permissions are assigned:
-          - local_files: honours caller-supplied folder roles.
-          - drive: reads Google ACLs via _extract_permissions.
-          - sharepoint: reads Graph API ACLs via _extract_permissions.
-
-        The base implementation ignores the request and returns [ADMIN_ONLY].
-        Subclasses override this to implement source-specific logic.
+        Returns ``(files, sync_cursors)``. The cursor slot carries the
+        provider's incremental state for :meth:`save_sync_state`, or None for
+        sources that have none.
         """
-        return [PermissionTokens.ADMIN_ONLY]
+        raise NotImplementedError
+
+    async def get_files_from_path(
+        self,
+        file_path: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        config: Optional[Dict[str, Any]] = None,
+        *args,
+        **kwargs,
+    ):
+        raise NotImplementedError
+
+    async def _roots_needing_full_scan(self, roots: Sequence[str]) -> List[str]:
+        """Roots with zero indexed files — those need a full scan, not a delta.
+
+        Without a file store, or before a credential is known, every root
+        counts as new.
+        """
+        store = self.context.file_store
+        if not (self.credential_id and store):
+            return list(roots)
+
+        needing = []
+        for root in roots:
+            indexed = await store.has_indexed_files(
+                credential_id=self.credential_id,
+                source=str(self.source),
+                reference_patterns=[f"{root}/%" if root else "%"],
+            )
+            if not indexed:
+                needing.append(root)
+        return needing
 
     async def dialect(self) -> str:
         """Return the canonical sqlglot SQL dialect for this integration's backend.
