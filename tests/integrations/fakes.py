@@ -1,5 +1,7 @@
 """In-memory stand-ins for the ports, so tests need no database or app."""
 
+import httpx
+
 from q99_utils.models import SourceEnum
 
 
@@ -86,3 +88,60 @@ class FakeUserManagerSDK:
 
     async def update_sync_state(self, credential_id, sync_cursors, last_sync):
         self.sync_state_calls.append((credential_id, sync_cursors, last_sync))
+
+
+class HttpRecorder:
+    """Swaps ``httpx.AsyncClient`` for a stand-in that records requests and
+    replays one canned response.
+
+    Integrations that only talk HTTP are tested through this rather than a live
+    transport: the assertions are about what went on the wire.
+    """
+
+    def __init__(self, *, json=None, status_code=200, text=None, exc=None):
+        self.calls = []
+        self._json = json
+        self._status_code = status_code
+        self._text = text
+        self._exc = exc
+
+    @property
+    def last(self) -> dict:
+        """The most recent request: method, url, and its json/data body."""
+        return self.calls[-1]
+
+    def install(self, monkeypatch) -> "HttpRecorder":
+        recorder = self
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc_info):
+                return False
+
+            async def post(self, url, **kwargs):
+                return recorder._respond("POST", url, kwargs)
+
+            async def get(self, url, **kwargs):
+                return recorder._respond("GET", url, kwargs)
+
+        monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+        return self
+
+    def _respond(self, method, url, kwargs):
+        self.calls.append({
+            "method": method,
+            "url": url,
+            "json": kwargs.get("json"),
+            "data": kwargs.get("data"),
+        })
+        if self._exc is not None:
+            raise self._exc
+        request = httpx.Request(method, url)
+        if self._text is not None:
+            return httpx.Response(self._status_code, text=self._text, request=request)
+        return httpx.Response(self._status_code, json=self._json, request=request)

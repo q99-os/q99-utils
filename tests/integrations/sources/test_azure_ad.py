@@ -10,6 +10,7 @@ import httpx
 import pytest
 
 from q99_utils.integrations.exceptions import CredentialValidationError
+from q99_utils.integrations.registry import get_integration_class
 from q99_utils.integrations.sources.azure_ad import (
     GRAPH_GROUPS_URL,
     AzureADIntegration,
@@ -130,3 +131,10 @@ async def test_error_is_framework_agnostic(monkeypatch, integration, credentials
         base.__module__.startswith("fastapi") or base.__module__.startswith("starlette")
         for base in type(exc_info.value).__mro__
     )
+
+
+def test_serves_both_azure_ad_and_microsoft_sso():
+    # One app registration backs group sync and SSO login, so both sources map
+    # here — but they stay separate sources so their credentials never collide.
+    assert get_integration_class(SourceEnum.azure_ad) is AzureADIntegration
+    assert get_integration_class(SourceEnum.microsoft_sso) is AzureADIntegration

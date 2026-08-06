@@ -26,7 +26,8 @@ q99_utils/
     └── sources/                one integration per module
         ├── slack.py  greenapi.py  azure_ad.py  databricks.py
         ├── postgres.py  mssql.py  bigquery.py
-        └── local_files.py  bucket.py
+        ├── local_files.py  bucket.py
+        └── alamo.py  google_sso.py
 
 tests/integrations/
 ├── fakes.py                    in-memory stand-in per port
