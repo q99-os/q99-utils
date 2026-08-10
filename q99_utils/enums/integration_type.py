@@ -10,6 +10,10 @@ class IntegrationTypeEnum(StrEnum):
     bot = "bot"
     email = "email"
     idp = "idp"
+    bucket = "bucket"
+    quantos_bucket = "quantos_bucket"
+    local_db = "local_db"
+    greenapi_partner = "greenapi-partner"
 
 
 __all__ = ["IntegrationTypeEnum"]

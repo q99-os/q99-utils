@@ -20,6 +20,7 @@ from q99_utils.integrations.sources import (
     GreenAPIIntegration,
     SlackIntegration,
 )
+from q99_utils.integrations.sources.greenapi import PROD_API_URL, SANDBOX_API_URL
 from q99_utils.enums import SourceEnum
 
 from tests.integrations.fakes import FakeDriver, FakeDriverFactory, FakeUserManagerSDK
@@ -85,8 +86,9 @@ def test_greenapi_url_follows_injected_environment():
         context=IntegrationContext(config=IntegrationConfig(environment="dev")),
     )
 
-    assert prod.api_url == "https://green-api.com"
-    assert dev.api_url == "https://7107.api.green-api.com"
+    assert prod.api_url == PROD_API_URL
+    assert dev.api_url == SANDBOX_API_URL
+    assert prod.api_url != dev.api_url
 
 
 # ── connection registry ──────────────────────────────────────────────

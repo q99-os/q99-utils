@@ -25,4 +25,20 @@ class CredentialValidationError(IntegrationError):
         return self.message
 
 
-__all__ = ["IntegrationError", "CredentialValidationError"]
+class ResourceNotFound(IntegrationError):
+    """The provider says the resource is gone.
+
+    Split out from the generic error because callers act on it: a deleted group
+    gets pruned, a transient failure gets retried. Hosts usually map this to 404.
+    """
+
+    def __init__(self, message: str, *, source: Optional[str] = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.source = source
+
+    def __str__(self) -> str:
+        return self.message
+
+
+__all__ = ["IntegrationError", "CredentialValidationError", "ResourceNotFound"]
