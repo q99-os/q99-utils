@@ -2,11 +2,13 @@
 
 from q99_utils.logger import get_logger
 
+from q99_utils.integrations.sources.alamo import AlamoIntegration
 from q99_utils.integrations.sources.azure_ad import AzureADIntegration
 from q99_utils.integrations.sources.bigquery import BigQueryIntegration
 from q99_utils.integrations.sources.bucket import BucketIntegration
 from q99_utils.integrations.sources.databricks import DatabricksIntegration
 from q99_utils.integrations.sources.gmail import GmailIntegration
+from q99_utils.integrations.sources.google_sso import GoogleSsoIntegration
 from q99_utils.integrations.sources.greenapi import GreenAPIIntegration
 from q99_utils.integrations.sources.local_files import LocalFilesIntegration
 from q99_utils.integrations.sources.mssql import MSSQLIntegration
@@ -28,12 +30,14 @@ except ImportError as exc:  # pragma: no cover - depends on install extras
     )
 
 __all__ = [
+    "AlamoIntegration",
     "AzureADIntegration",
     "BigQueryIntegration",
     "BucketIntegration",
     "DatabricksIntegration",
     "GmailIntegration",
     "GoogleDriveIntegration",
+    "GoogleSsoIntegration",
     "GreenAPIIntegration",
     "LocalFilesIntegration",
     "MSSQLIntegration",

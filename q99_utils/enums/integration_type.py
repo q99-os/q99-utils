@@ -14,6 +14,8 @@ class IntegrationTypeEnum(StrEnum):
     quantos_bucket = "quantos_bucket"
     local_db = "local_db"
     greenapi_partner = "greenapi-partner"
+    external_api = "external_api"
+    sso = "sso"
 
 
 __all__ = ["IntegrationTypeEnum"]

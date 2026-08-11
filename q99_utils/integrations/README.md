@@ -26,7 +26,8 @@ q99_utils/integrations/
 ├── sources/                    one integration per module, named after its source
 │   ├── slack.py                greenapi.py   azure_ad.py     databricks.py
 │   ├── postgres.py             mssql.py      bigquery.py     openwells.py
-│   └── local_files.py          bucket.py     sharepoint.py   google_drive.py
+│   ├── local_files.py          bucket.py     sharepoint.py   google_drive.py
+│   └── alamo.py                google_sso.py
 └── mappers/                    query layers over a source's own schema
     ├── openwells_base.py       OpenWellsAgentMapper (the contract)
     └── openwells_edm.py        OpenWellsEDMMapper (the EDM SQL)
