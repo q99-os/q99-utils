@@ -9,7 +9,8 @@ from q99_utils.models import OnboardingData
 
 logger = get_logger(__name__)
 
-SLACK_AUTH_TEST_URL = "https://slack.com/api/auth.test"
+SLACK_API_BASE_URL = "https://slack.com/api"
+SLACK_AUTH_TEST_URL = f"{SLACK_API_BASE_URL}/auth.test"
 
 
 @register(SourceEnum.slack)
@@ -42,4 +43,8 @@ class SlackIntegration(SourceIntegrationInterface):
         return True
 
 
-__all__ = ["SlackIntegration"]
+__all__ = [
+    "SLACK_API_BASE_URL",
+    "SLACK_AUTH_TEST_URL",
+    "SlackIntegration",
+]

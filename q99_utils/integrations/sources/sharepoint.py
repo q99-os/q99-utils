@@ -13,7 +13,13 @@ from urllib.parse import unquote
 
 import httpx
 
-from q99_utils.integrations.core import SourceIntegrationInterface, classify_change, register
+from q99_utils.integrations.core import (
+    GRAPH_BASE_URL,
+    MicrosoftGraphAuth,
+    SourceIntegrationInterface,
+    classify_change,
+    register,
+)
 from q99_utils.integrations.discovery import ChangeKind, DiscoveredFile, ResourceNode
 from q99_utils.models import PermissionTokens
 
@@ -22,9 +28,6 @@ from q99_utils.enums import SourceEnum
 from q99_utils.models import OnboardingData
 
 logger = get_logger(__name__)
-
-GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
-GRAPH_SCOPE = "https://graph.microsoft.com/.default"
 
 
 class _GraphRateLimiter:
@@ -51,7 +54,7 @@ class _GraphRateLimiter:
 
 
 @register(SourceEnum.sharepoint)
-class SharepointIntegration(SourceIntegrationInterface):
+class SharepointIntegration(MicrosoftGraphAuth, SourceIntegrationInterface):
     _rate_limiter = _GraphRateLimiter(rate=30.0)
 
     # Permissions
@@ -182,32 +185,6 @@ class SharepointIntegration(SourceIntegrationInterface):
                     group_name_cache[gid] = await self._resolve_group_names(client, headers, gid)
 
         return self._extract_permissions(payload, group_name_cache)
-
-    # Auth
-
-    async def get_access_token(self, data: Optional[OnboardingData] = None):
-        if data:
-            self.credentials = data.model_dump()
-        else:
-            await self.get_credentials()  # first onboarding: read them from UM
-        tenant_id = self.credentials["tenant_id"]
-        client_id = self.credentials["client_id"]
-        client_secret = self.credentials["client_secret"]
-
-        token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
-        token_data = {
-            "grant_type": "client_credentials",
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "scope": GRAPH_SCOPE,
-        }
-
-        async with httpx.AsyncClient(timeout=120) as client:
-            response = await client.post(token_url, data=token_data)
-            response.raise_for_status()
-            token = response.json().get("access_token")
-
-        return token
 
     # File discovery
 

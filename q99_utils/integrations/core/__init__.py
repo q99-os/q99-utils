@@ -5,6 +5,18 @@ from q99_utils.integrations.core.context import IntegrationConfig, IntegrationCo
 from q99_utils.integrations.core.exceptions import (
     CredentialValidationError,
     IntegrationError,
+    ResourceNotFound,
+)
+from q99_utils.integrations.core.microsoft_graph import (
+    DELEGATED_MAIL_SCOPES,
+    GRAPH_BASE_URL,
+    GRAPH_SCOPE,
+    MicrosoftGraphAuth,
+    acquire_graph_token,
+    graph_paginate,
+    graph_request,
+    refresh_delegated_token,
+    request_graph_token,
 )
 from q99_utils.integrations.core.registry import (
     create_integration,
@@ -18,12 +30,21 @@ from q99_utils.integrations.core.sql_source import SqlIntegrationBase
 
 __all__ = [
     "CredentialValidationError",
+    "DELEGATED_MAIL_SCOPES",
+    "GRAPH_BASE_URL",
+    "GRAPH_SCOPE",
     "IntegrationConfig",
     "IntegrationContext",
     "IntegrationError",
+    "MicrosoftGraphAuth",
+    "ResourceNotFound",
     "SourceIntegrationInterface",
     "SqlIntegrationBase",
+    "acquire_graph_token",
     "classify_change",
+    "graph_paginate",
+    "graph_request",
+    "request_graph_token",
     "create_integration",
     "get_integration_class",
     "register",

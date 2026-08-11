@@ -6,8 +6,20 @@ from q99_utils.integrations.core import SourceIntegrationInterface, register
 from q99_utils.enums import SourceEnum
 from q99_utils.models import OnboardingData
 
-PROD_API_URL = "https://green-api.com"
+PROD_API_URL = "https://api.green-api.com"
 SANDBOX_API_URL = "https://7107.api.green-api.com"
+MEDIA_API_URL = "https://media.green-api.com"
+
+
+def resolve_api_url(environment: str) -> str:
+    """GreenAPI base URL for a deployment environment.
+
+    Only production talks to the production instance; everything else, stage
+    and sandbox included, goes to the sandbox. Consumers outside the engine
+    call this directly — they have an environment name but no
+    ``IntegrationContext`` to read it from.
+    """
+    return PROD_API_URL if environment == "prod" else SANDBOX_API_URL
 
 
 @register(SourceEnum.greenapi, SourceEnum.greenapi_partner)
@@ -21,7 +33,7 @@ class GreenAPIIntegration(SourceIntegrationInterface):
         attribute evaluated against the host's settings at import time, which
         made the module impossible to import without the host's environment.
         """
-        return PROD_API_URL if self.config.environment == "prod" else SANDBOX_API_URL
+        return resolve_api_url(self.config.environment)
 
     async def api_status(self, data: OnboardingData) -> bool:
 
@@ -58,4 +70,10 @@ class GreenAPIIntegration(SourceIntegrationInterface):
             return resp.json()
 
 
-__all__ = ["GreenAPIIntegration"]
+__all__ = [
+    "MEDIA_API_URL",
+    "PROD_API_URL",
+    "SANDBOX_API_URL",
+    "GreenAPIIntegration",
+    "resolve_api_url",
+]
