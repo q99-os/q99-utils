@@ -30,7 +30,7 @@ def _integration(environment: str) -> GreenAPIIntegration:
 @pytest.fixture
 def credentials() -> OnboardingData:
     return OnboardingData(
-        source=SourceEnum.greenapi, instance_id="710722706236", api_key="token"
+        source=SourceEnum.greenapi, instance_id="1109876543210", api_key="token"
     )
 
 
@@ -93,7 +93,7 @@ async def test_authorized_instance_passes(monkeypatch, credentials):
 
     assert await _integration("dev").api_status(credentials) is True
     assert requested[0].startswith(SANDBOX_API_URL)
-    assert "/waInstance710722706236/getStateInstance/token" in requested[0]
+    assert "/waInstance1109876543210/getStateInstance/token" in requested[0]
 
 
 async def test_unauthorized_instance_fails(monkeypatch, credentials):
