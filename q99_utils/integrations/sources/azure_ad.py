@@ -31,9 +31,7 @@ GRAPH_SUBSCRIPTIONS_URL = f"{GRAPH_BASE_URL}/subscriptions"
 
 GROUP_SELECT = "$select=id,displayName"
 
-MEMBERSHIP_TYPES = frozenset(
-    {"#microsoft.graph.group", "#microsoft.graph.directoryRole"}
-)
+GROUP_ODATA_TYPE = "#microsoft.graph.group"
 
 
 # Also serves 'microsoft_sso': both are the same app registration, and
@@ -139,8 +137,7 @@ class AzureADIntegration(MicrosoftGraphAuth, SourceIntegrationInterface):
     async def fetch_user_memberships(
         self, email: str, data: Optional[OnboardingData] = None
     ) -> List[Dict[str, str]]:
-        """A user's groups and directory roles as ``{id, displayName}``.
-
+        """
         Raises ``ResourceNotFound`` when the user does not exist.
         """
         token = await self.get_access_token(data)
@@ -148,7 +145,7 @@ class AzureADIntegration(MicrosoftGraphAuth, SourceIntegrationInterface):
         memberships = [
             {"id": item["id"], "displayName": item["displayName"]}
             async for item in graph_paginate(access_token=token, url=url)
-            if item.get("@odata.type") in MEMBERSHIP_TYPES
+            if item.get("@odata.type") == GROUP_ODATA_TYPE
             and item.get("id")
             and item.get("displayName")
         ]

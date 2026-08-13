@@ -1,9 +1,9 @@
 """Directory reads and subscriptions on AzureADIntegration.
 
 These moved out of the user manager, where they were tested against a mocked
-``requests``. The shaping is what matters: pagination followed to the end,
-membership types filtered, emails lowercased, a missing resource distinguished
-from a transient failure.
+``requests``. The shaping is what matters: pagination followed to the end, only
+groups kept from the heterogeneous ``/memberOf`` collection, emails lowercased,
+a missing resource distinguished from a transient failure.
 """
 
 from __future__ import annotations
@@ -190,7 +190,7 @@ async def test_fetch_all_user_emails_skips_users_without_mail(
     assert await integration.fetch_all_user_emails(credentials) == ["ana@q99.ai"]
 
 
-async def test_fetch_user_memberships_keeps_only_groups_and_roles(
+async def test_fetch_user_memberships_drops_directory_roles_and_units(
     monkeypatch, integration, credentials
 ):
     _patch_transport(
@@ -206,7 +206,6 @@ async def test_fetch_user_memberships_keeps_only_groups_and_roles(
 
     assert await integration.fetch_user_memberships("ana@q99.ai", credentials) == [
         {"id": "g1", "displayName": "Eng"},
-        {"id": "r1", "displayName": "Admin"},
     ]
 
 
