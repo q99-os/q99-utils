@@ -5,17 +5,12 @@ from q99_utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-DEFAULT_DRILLING_PHASES: tuple[str, ...] = ("GUIA", "INT1", "INT2", "PROD")
-
-
 class OpenWellsEDMMapper(OpenWellsAgentMapper):
     """OpenWells agent mapper for the EDM schema.
 
     Canonical SQL is written in MSSQL T-SQL. For non-tsql dialects the
     ``_compile`` seam transpiles at execute time, which needs the ``openwells``
-    extra (``pip install q99-utils[openwells]``). The
-    drilling-phase enum is customer-specific (not schema-specific) and is
-    parameterized via ``drilling_phases``.
+    extra (``pip install q99-utils[openwells]``).
     """
 
     def __init__(
@@ -23,20 +18,15 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
         driver: Any,
         *,
         dialect: str = "tsql",
-        drilling_phases: tuple[str, ...] = DEFAULT_DRILLING_PHASES,
     ):
         self._driver = driver
         self._dialect = dialect
-        self._drilling_phases = drilling_phases
 
     def _compile(self, sql: str) -> str:
         if self._dialect == "tsql":
             return sql
         import sqlglot
         return sqlglot.transpile(sql, read="tsql", write=self._dialect)[0]
-
-    def _phase_placeholders(self) -> str:
-        return ", ".join(["?"] * len(self._drilling_phases))
 
     async def fetch_general(self, well_id: str) -> list[dict]:
         sql = """
@@ -61,9 +51,10 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
         return await self._driver.query(sql=self._compile(sql), params=(well_id,))
 
     async def fetch_activities(self, well_id: str) -> list[dict]:
-        sql = f"""
+        sql = """
             SELECT
                 activity_id,
+                event_id,
                 time_from,
                 time_to,
                 activity_duration,
@@ -82,55 +73,154 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 on_bottom_torque,
                 pickup_weight,
                 slackoff_weight,
-                CAST(service_company AS NVARCHAR(MAX)) as service_company
+                service_company
             FROM DM_ACTIVITY
             WHERE
                 well_id = ?
-                AND activity_phase IN ({self._phase_placeholders()})
             ORDER BY time_from
         """
-        return await self._driver.query(sql=self._compile(sql), params=(well_id, *self._drilling_phases))
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
 
-    async def fetch_sections(self, well_id: str) -> list[dict]:
-        sql = f"""
+    async def fetch_activity_span(self, well_id: str) -> dict | None:
+        """First and last activity timestamps. An aggregate rather than a read
+        of the log: callers that only need the well's extent shouldn't pay for
+        every row."""
+        sql = """
             SELECT
-                activity_phase AS phase,
-                MIN(time_from) AS date_init,
-                MAX(time_to) AS date_end,
-                MIN(md_from) AS md_from,
-                MAX(md_to) AS md_to,
-                ROUND(SUM(activity_duration), 2) AS total_hours
+                MIN(time_from) AS first_from,
+                MAX(time_from) AS last_from,
+                MAX(time_to) AS last_to
             FROM DM_ACTIVITY
-            WHERE
-                well_id = ?
-                AND activity_phase IN ({self._phase_placeholders()})
-            GROUP BY activity_phase
-            ORDER BY MIN(time_from)
+            WHERE well_id = ? AND time_from IS NOT NULL
         """
-        return await self._driver.query(sql=self._compile(sql), params=(well_id, *self._drilling_phases))
+        rows = await self._driver.query(sql=self._compile(sql), params=(well_id,))
+        return rows[0] if rows else None
+
+    async def fetch_activity_days(self) -> list[dict]:
+        """One row per well per calendar day of logged activity, fleet-wide.
+
+        ``day_advanced`` marks days the hole actually deepened — the same test
+        the per-well criterion applies row by row, pushed into SQL because the
+        alternative is reading the whole fleet's activity log to answer it.
+        """
+        sql = """
+            SELECT
+                well_id,
+                CAST(time_from AS DATE) AS d,
+                MAX(time_from) AS day_last_from,
+                MAX(time_to) AS day_last_to,
+                MAX(md_to) AS day_max_md,
+                MAX(CASE WHEN md_to IS NOT NULL
+                          AND (md_from IS NULL OR md_from <> md_to)
+                         THEN 1 ELSE 0 END) AS day_advanced
+            FROM DM_ACTIVITY
+            WHERE time_from IS NOT NULL
+            GROUP BY well_id, CAST(time_from AS DATE)
+        """
+        return await self._driver.query(sql=self._compile(sql), params=())
+
+    async def fetch_events(self, well_id: str) -> list[dict]:
+        """The well's events and their declared codes."""
+        sql = "SELECT event_id, event_code FROM DM_EVENT WHERE well_id = ?"
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
 
     async def fetch_surveys(self, well_id: str) -> list[dict]:
+        """Survey stations, tagged by the ``phase`` of their pass.
+
+        One header per phase — each is a full path, so pooling them interleaves
+        into a sawtooth. The current one wins: stations carrying ``offset_north``
+        first, then most recently updated. Ordered by the survey's own
+        ``sequence_no``, so a sidetrack keeps its running order.
+        """
         sql = """
-            WITH latest_survey AS (
-                SELECT TOP 1
-                    def_survey_header_id,
-                    well_id
-                FROM CD_DEFINITIVE_SURVEY_HEADER
+            WITH ranked AS (
+                SELECT
+                    h.def_survey_header_id,
+                    h.phase,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY h.phase
+                        ORDER BY
+                            CASE WHEN EXISTS (
+                                SELECT 1 FROM CD_DEFINITIVE_SURVEY_STATION o
+                                WHERE o.def_survey_header_id = h.def_survey_header_id
+                                  AND o.offset_north IS NOT NULL
+                            ) THEN 0 ELSE 1 END,
+                            h.update_date DESC
+                    ) AS rn
+                FROM CD_DEFINITIVE_SURVEY_HEADER h
                 WHERE
-                    well_id = ?
-                    AND phase = 'ACTUAL'
-                ORDER BY update_date DESC
+                    h.well_id = ?
+                    AND EXISTS (
+                        SELECT 1 FROM CD_DEFINITIVE_SURVEY_STATION s
+                        WHERE s.def_survey_header_id = h.def_survey_header_id
+                    )
             )
             SELECT
+                r.phase,
+                dss.def_survey_header_id,
+                dss.sequence_no,
                 dss.md,
+                dss.tvd,
                 dss.inclination,
                 dss.azimuth,
-                dss.tvd,
-                dss.dogleg_severity
+                dss.dogleg_severity,
+                dss.offset_north,
+                dss.offset_east
             FROM CD_DEFINITIVE_SURVEY_STATION dss
-            INNER JOIN latest_survey ls
-                ON ls.def_survey_header_id = dss.def_survey_header_id
-            ORDER BY dss.sequence_no ASC
+            INNER JOIN ranked r
+                ON r.def_survey_header_id = dss.def_survey_header_id
+                AND r.rn = 1
+            ORDER BY r.phase ASC, dss.sequence_no ASC
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_depth_offset(self, well_id: str) -> float:
+        """How much to add to a logged depth before converting it. Coalesced to
+        zero: an unset offset is no offset, not a missing depth."""
+        rows = await self._driver.query(
+            sql=self._compile(
+                "SELECT COALESCE(water_depth, 0) AS depth_offset "
+                "FROM CD_WELL_SOURCE WHERE well_id = ?"
+            ),
+            params=(well_id,),
+        )
+        return rows[0]["depth_offset"] if rows else 0.0
+
+    async def fetch_datum(self, well_id: str) -> list[dict]:
+        """Elevation of the well's depth references."""
+        sql = """
+            SELECT datum_elevation, datum_name, datum_type, is_default
+            FROM CD_DATUM
+            WHERE well_id = ?
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_formations(self, well_id: str) -> list[dict]:
+        """Formation tops actually hit, shallowest first.
+
+        ACTUAL only; PLAN/PROTOTYPE rows are prognoses. On ACTUAL rows the
+        ``prognosed_*`` columns carry the picked depth. Sidetracks pick the same
+        top twice, so ``wellbore_id`` travels with the row.
+        """
+        sql = """
+            SELECT DISTINCT
+                cwf.wellbore_id,
+                cwf.formation_name,
+                cwf.prognosed_md AS md_top,
+                cwf.prognosed_base_md AS md_base,
+                cwf.prognosed_tvd AS tvd_top,
+                cwf.prognosed_base_tvd AS tvd_base,
+                cwf.dip_angle,
+                clc.lithology,
+                cwf.comments
+            FROM CD_WELLBORE_FORMATION cwf
+            LEFT JOIN CD_LITHOLOGY_CLASS clc
+                ON clc.lithology_id = cwf.lithology_id
+            WHERE
+                cwf.well_id = ?
+                AND cwf.phase = 'ACTUAL'
+                AND cwf.formation_name IS NOT NULL
+            ORDER BY cwf.prognosed_md ASC
         """
         return await self._driver.query(sql=self._compile(sql), params=(well_id,))
 
@@ -154,11 +244,68 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
         """
         return await self._driver.query(sql=self._compile(sql), params=(well_id,))
 
+    async def fetch_pipe_tally(self, well_id: str) -> list[dict]:
+        """Joint-by-joint tally of every pipe string run in the well.
+
+        One row per piece, so a 6 km string is ~450 rows and a whole well can
+        exceed a thousand — ask for it when the question is about individual
+        joints, not about a string's overall length.
+
+        Reading it: ``cum_length`` is the depth at the **bottom** of each
+        piece, so a piece spans ``cum_length - length`` to ``cum_length``.
+        A null ``joint_number`` marks a piece with a function rather than a
+        place in the string's numbering — shoe, float collar, pup, crossover,
+        marker joint — and ``comp_name``/``description`` say which.
+        ``assembly_name`` is the operator's own string name; there is no fixed
+        vocabulary, so read it as given rather than matching on it.
+
+        The flags are sparse by design — ``centralize``, ``is_out`` and
+        ``is_replaced`` are set only on the pieces they apply to, so a null is
+        a "no", not a gap. Per-joint serial numbers and connection types are
+        not selected: the one reference tenant filled them on 5 and 1 rows out
+        of 158,328, and every null still costs the model a key on every row.
+        """
+        sql = """
+            SELECT
+                a.assembly_name,
+                a.string_type,
+                r.run_tally_type,
+                r.date_report,
+                r.tally_by,
+                r.is_top_down,
+                t.sequence_no,
+                t.joint_number,
+                t.length,
+                t.cum_length,
+                t.is_out,
+                t.is_replaced,
+                t.centralize,
+                t.letter_code,
+                CAST(t.comments AS NVARCHAR(MAX)) AS comments,
+                d.comp_name,
+                d.description,
+                d.nominal_size,
+                d.weight,
+                d.grade,
+                d.range,
+                d.id_drift
+            FROM DM_PIPE_TALLY t
+            LEFT JOIN DM_PIPE_DATA d
+                ON d.pipe_data_id = t.pipe_data_id
+            LEFT JOIN DM_PIPE_RUN r
+                ON r.pipe_run_id = t.pipe_run_id
+            LEFT JOIN CD_ASSEMBLY a
+                ON a.assembly_id = r.assembly_id
+            WHERE t.well_id = ?
+            ORDER BY r.date_report, t.cum_length
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
     async def fetch_bha(self, well_id: str) -> list[dict]:
         sql = """
             SELECT
                 ca.assembly_name,
-                ROUND(cbcb.bit_size, 2) AS bit_size,
+                cbcb.bit_size,
                 cbcb.iadc_code,
                 cbcb.bit_no,
                 cbcb.rerun_no,
@@ -170,27 +317,6 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 dbr.date_out,
                 ca.length_total AS bha_length,
                 CONCAT(cbcb.iadc_inner,'-',cbcb.iadc_outer,'-',cbcb.iadc_dull,'-',cbcb.iadc_location,'-',cbcb.iadc_bearing,'-',cbcb.iadc_gauge,'-',cbcb.iadc_other,'-',cbcb.iadc_reason_pulled) AS dull_grading,
-                ROUND(
-                    (dbr.md_out - dbr.md_in) / NULLIF(
-                        CAST(DATEDIFF(SECOND, dbr.date_in, dbr.date_out) AS FLOAT) / 3600.0
-                        - ISNULL((
-                            SELECT SUM(da.activity_duration)
-                            FROM DM_ACTIVITY da
-                            WHERE da.well_id = dbr.well_id
-                              AND da.activity_class IN ('NP', 'NE')
-                              AND da.time_from >= dbr.date_in
-                              AND da.time_to <= dbr.date_out
-                        ), 0),
-                    0),
-                2) AS avg_rop_per_hour,
-                ISNULL((
-                    SELECT SUM(da2.activity_duration)
-                    FROM DM_ACTIVITY da2
-                    WHERE da2.well_id = dbr.well_id
-                      AND da2.activity_class IN ('NP', 'NE')
-                      AND da2.time_from >= dbr.date_in
-                      AND da2.time_to <= dbr.date_out
-                ), 0) AS npt_hours_in_run,
                 dbr.daily_sliding_footage,
                 dbr.daily_rotating_footage,
                 dbr.daily_sliding_hours,
@@ -214,9 +340,9 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 cac.sect_type_code,
                 cac.catalog_key_desc,
                 cac.description,
-                ROUND(cac.od_body, 3) AS od_body,
-                ROUND(cac.id_body, 3) AS id_body,
-                ROUND(cac.length, 3) AS length,
+                cac.od_body,
+                cac.id_body,
+                cac.length,
                 ROUND(cac.md_top, 2) AS md_top,
                 ROUND(cac.md_base, 2) AS md_base,
                 cac.tfa,
@@ -298,6 +424,14 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
         return await self._driver.query(sql=self._compile(sql), params=(well_id,))
 
     async def fetch_npt_events(self, well_id: str) -> list[dict]:
+        """NPT events. ``npt_net_time`` is the operator's own accounting, bounded
+        by the event window — an event cannot bill more time than it lasted.
+
+        Placement is the caller's: ``first_activity_id`` points at the activity
+        the event began on. Resolving it here means joining the activity log and
+        carrying an ntext description through that join, which costs ~25 s a well
+        on a remote tenant against 0.6 s without it.
+        """
         sql = """
             SELECT
                 ef.failure_title,
@@ -309,7 +443,13 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 ef.npt_cause_code,
                 ef.npt_desc_code,
                 ef.npt_operation_type,
-                ef.npt_net_time,
+                CASE
+                    WHEN ef.date_failure_start IS NOT NULL
+                     AND ef.date_failure_end > ef.date_failure_start
+                     AND ef.npt_net_time > DATEDIFF(SECOND, ef.date_failure_start, ef.date_failure_end) / 3600.0
+                    THEN DATEDIFF(SECOND, ef.date_failure_start, ef.date_failure_end) / 3600.0
+                    ELSE ef.npt_net_time
+                END AS npt_net_time,
                 ef.npt_nested_time,
                 ef.npt_level,
                 ef.equip_fail_type,
@@ -318,12 +458,8 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 ef.failure_total_cost,
                 ef.event_id,
                 ef.first_activity_id,
-                ef.last_activity_id,
-                a.activity_phase AS phase
+                ef.last_activity_id
             FROM DM_OPER_EQUIP_FAIL ef
-            LEFT JOIN DM_ACTIVITY a
-                ON a.well_id = ef.well_id
-                AND a.activity_id = ef.first_activity_id
             WHERE ef.well_id = ?
             ORDER BY ef.date_failure_start
         """
@@ -347,6 +483,13 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
         return await self._driver.query(sql=self._compile(sql), params=(well_id,))
 
     async def fetch_solids_control(self, well_id: str) -> list[dict]:
+        """Solids-control runs, both machines in one series.
+
+        A hydrocyclone reports ``press_op``, a centrifuge ``rpm``; each branch
+        pads the other's column with a typed NULL and ``equipment_type`` says
+        which to read. The second branch is aliased to the first's output names
+        so the UNION's positional pairing reads instead of counts.
+        """
         sql = """
             SELECT
                 'hydroclone' AS equipment_type,
@@ -360,32 +503,35 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 flowrate_overflow,
                 flowrate_underflow,
                 press_op,
-                NULL AS rpm
+                CAST(NULL AS FLOAT) AS rpm
             FROM DM_HYDROCLONE_OP
             WHERE well_id = ?
             UNION ALL
             SELECT
-                'centrifuge',
-                date_op,
-                ROUND(md_op, 2),
-                duration,
-                density_feed,
-                density_overflow,
-                density_underflow,
-                feed_flowrate,
-                overflow_flowrate,
-                underflow_flowrate,
-                NULL,
-                rpm
+                'centrifuge'        AS equipment_type,
+                date_op             AS date_op,
+                ROUND(md_op, 2)     AS md_op,
+                duration            AS duration,
+                density_feed        AS density_feed,
+                density_overflow    AS density_overflow,
+                density_underflow   AS density_underflow,
+                feed_flowrate       AS flowrate_feed,
+                overflow_flowrate   AS flowrate_overflow,
+                underflow_flowrate  AS flowrate_underflow,
+                CAST(NULL AS FLOAT) AS press_op,
+                rpm                 AS rpm
             FROM DM_CENTRIFUGE_OP
             WHERE well_id = ?
             ORDER BY date_op
         """
         return await self._driver.query(sql=self._compile(sql), params=(well_id, well_id))
 
-    async def fetch_plan(self, well_id: str) -> list[dict]:
-        sql = f"""
+    async def fetch_plan_operations(self, well_id: str) -> list[dict]:
+        """Planned operations for the well, across every plan. ``well_plan_id``
+        joins to :meth:`fetch_plan_headers`, which the caller picks from."""
+        sql = """
             SELECT
+                well_plan_id,
                 md_from,
                 md_to,
                 activity_memo,
@@ -395,29 +541,70 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
             FROM DM_WELL_PLAN_OP
             WHERE
                 well_id = ?
-                AND activity_phase IN ({self._phase_placeholders()})
-            ORDER BY activity_phase, sequence_no
-        """
-        return await self._driver.query(sql=self._compile(sql), params=(well_id, *self._drilling_phases))
-
-    async def fetch_phase_summary(self, well_id: str) -> list[dict]:
-        sql = """
-            SELECT
-                activity_phase,
-                COUNT(*) AS activity_count,
-                MIN(time_from) AS earliest_start,
-                MAX(time_to) AS latest_end,
-                ROUND(SUM(activity_duration), 2) AS total_hours,
-                ROUND(MIN(md_from), 2) AS min_depth,
-                ROUND(MAX(md_to), 2) AS max_depth
-            FROM DM_ACTIVITY
-            WHERE well_id = ?
-            GROUP BY activity_phase
-            ORDER BY MIN(time_from)
+            ORDER BY sequence_no
         """
         return await self._driver.query(sql=self._compile(sql), params=(well_id,))
 
+    async def fetch_plan_headers(self, well_id: str) -> list[dict]:
+        """One row per program filed against the well: what kind of job it is,
+        which revision, when it was planned. Which one to draw is the caller's
+        call — see the operations."""
+        sql = """
+            SELECT
+                well_plan_id,
+                job_type,
+                version,
+                planning_start_date,
+                expected_work_start_date
+            FROM DM_WELL_PLAN
+            WHERE
+                well_id = ?
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_wells(self) -> list[dict]:
+        """Every named well in the tenant. Wells with neither name are dropped:
+        there is nothing to show or search for."""
+        sql = """
+            SELECT
+                well_id,
+                COALESCE(well_common_name, well_legal_name) AS name,
+                field_name,
+                well_operator,
+                loc_country,
+                loc_state,
+                loc_county,
+                target_formation,
+                spud_date,
+                water_depth
+            FROM CD_WELL_SOURCE
+            WHERE COALESCE(well_common_name, well_legal_name) IS NOT NULL
+        """
+        return await self._driver.query(sql=self._compile(sql), params=())
+
+    async def fetch_npt_last_end(self, well_ids: list[str] | None = None) -> list[dict]:
+        """Latest NPT-event end per well; the whole fleet when no ids are given.
+
+        The one question a status check asks of NPT, answered as an aggregate:
+        callers that only need "is this well still down" shouldn't read every
+        event to find out.
+        """
+        where, params = "", ()
+        if well_ids is not None:
+            if not well_ids:
+                return []
+            where = f"WHERE well_id IN ({', '.join(['?'] * len(well_ids))})"
+            params = tuple(well_ids)
+        sql = f"""
+            SELECT well_id, MAX(date_failure_end) AS last_fail_end
+            FROM DM_OPER_EQUIP_FAIL
+            {where}
+            GROUP BY well_id
+        """
+        return await self._driver.query(sql=self._compile(sql), params=params)
+
     async def search_wells_text(self, search_query: str) -> list[dict]:
+        """Wells matching ``search_query`` on any name or identifier."""
         param = f"%{search_query}%"
         sql = """
             SELECT
@@ -429,11 +616,13 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
             WHERE (well_legal_name LIKE ?
                OR well_common_name LIKE ?
                OR field_name LIKE ?
-               OR well_operator LIKE ?)
+               OR well_operator LIKE ?
+               OR well_uwi LIKE ?
+               OR well_id LIKE ?)
                AND well_legal_name IS NOT NULL
             ORDER BY spud_date DESC
         """
-        return await self._driver.query(sql=self._compile(sql), params=(param, param, param, param))
+        return await self._driver.query(sql=self._compile(sql), params=(param,) * 6)
 
     async def fetch_reference_well(self, well_id: str) -> dict | None:
         rows = await self._driver.query(
@@ -473,17 +662,20 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
         """
         return await self._driver.query(sql=self._compile(sql), params=tuple(params))
 
-    async def get_well_name(self, well_id: str) -> str:
-        try:
-            rows = await self._driver.query(
-                sql=self._compile("SELECT well_legal_name FROM CD_WELL_SOURCE WHERE well_id = ?"),
-                params=(well_id,),
-            )
-            if rows and rows[0].get("well_legal_name"):
-                return rows[0]["well_legal_name"]
-        except Exception:
-            logger.warning("get_well_name lookup failed", exc_info=True, extra={"well_id": well_id})
-        return well_id
+    async def get_well_names(self, well_ids: list[str]) -> dict[str, str]:
+        """well_id → legal name, for the ids that have one. One query however many
+        wells are asked for."""
+        if not well_ids:
+            return {}
+        placeholders = ", ".join(["?"] * len(well_ids))
+        rows = await self._driver.query(
+            sql=self._compile(
+                f"SELECT well_id, well_legal_name FROM CD_WELL_SOURCE "
+                f"WHERE well_id IN ({placeholders})"
+            ),
+            params=tuple(well_ids),
+        )
+        return {r["well_id"]: r["well_legal_name"] for r in rows if r.get("well_legal_name")}
 
     async def apply_spud_fallback(self, rows: list[dict]) -> None:
         needs_fallback = [r for r in rows if r.get("spud_date") is None]
