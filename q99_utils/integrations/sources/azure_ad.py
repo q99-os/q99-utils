@@ -34,12 +34,9 @@ GROUP_SELECT = "$select=id,displayName"
 GROUP_ODATA_TYPE = "#microsoft.graph.group"
 
 
-# Also serves 'microsoft_sso': both are the same app registration, and
-# get_access_token's client_credentials call is exactly the check an SSO
-# credential needs. Note test_connection additionally requires Group.Read.All,
-# which SSO app registrations need not have — callers validating an SSO
-# credential should use get_access_token directly.
-@register(SourceEnum.azure_ad, SourceEnum.microsoft_sso)
+# All three are the same app registration. Validate SSO and app credentials with
+# get_access_token: test_connection also demands Group.Read.All, which they lack.
+@register(SourceEnum.azure_ad, SourceEnum.microsoft_sso, SourceEnum.microsoft_oauth_app)
 class AzureADIntegration(MicrosoftGraphAuth, SourceIntegrationInterface):
 
     # Credential validation

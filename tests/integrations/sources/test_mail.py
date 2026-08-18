@@ -233,3 +233,74 @@ async def test_refresh_without_rotation_keeps_the_old_one(monkeypatch, credentia
     await client.send_mail(subject="s", html="<b>hi</b>", to=["a@q99.ai"])
 
     assert client.credentials.refresh_token == "refresh-1"
+
+
+# What survives the process
+
+
+async def test_a_refresh_reaches_the_host_so_it_can_be_stored(monkeypatch, credentials):
+    """Without this hand-off the refresh lasts as long as the process does, and the
+    rotated token Microsoft just issued is lost — leaving the stored one dead."""
+    _patch_transport(
+        monkeypatch,
+        responses=[
+            (401, {"error": "expired"}),
+            (200, {"access_token": "fresh-token", "refresh_token": "refresh-2"}),
+            (202, None),
+        ],
+    )
+    guardados: list = []
+
+    async def store(creds):
+        guardados.append((creds.api_key, creds.refresh_token))
+
+    client = GraphMailClient(credentials, on_refresh=store)
+    await client.send_mail(subject="s", html="<b>hi</b>", to=["a@q99.ai"])
+
+    assert guardados == [("fresh-token", "refresh-2")]
+
+
+async def test_a_call_that_worked_has_nothing_to_hand_off(monkeypatch, credentials):
+    """No refresh, no write: the stored credential is still the good one."""
+    _patch_transport(monkeypatch, responses=[(202, None)])
+    guardados: list = []
+
+    async def store(creds):
+        guardados.append(creds)
+
+    await GraphMailClient(credentials, on_refresh=store).send_mail(
+        subject="s", html="<b>hi</b>", to=["a@q99.ai"]
+    )
+
+    assert guardados == []
+
+
+async def test_a_dead_grant_is_told_apart_from_a_passing_failure(monkeypatch, credentials):
+    """invalid_grant is final: retrying cannot fix it, only the owner can."""
+    from q99_utils.integrations.core import CredentialExpired
+
+    _patch_transport(
+        monkeypatch,
+        responses=[(401, {"error": "expired"}), (400, {"error": "invalid_grant"})],
+    )
+
+    with pytest.raises(CredentialExpired):
+        await GraphMailClient(credentials).send_mail(
+            subject="s", html="<b>hi</b>", to=["a@q99.ai"]
+        )
+
+
+async def test_a_provider_outage_disconnects_nobody(monkeypatch, credentials):
+    """Reading a Microsoft outage as a revoked grant would throw people out of
+    their own integration."""
+    from q99_utils.integrations.core import CredentialExpired
+
+    _patch_transport(
+        monkeypatch,
+        responses=[(401, {"error": "expired"}), (500, {"error": "server_error"})],
+    )
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await GraphMailClient(credentials).send_mail(
+            subject="s", html="<b>hi</b>", to=["a@q99.ai"]
+        )

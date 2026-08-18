@@ -43,6 +43,21 @@ class SourceIntegrationInterface:
             creds.root_folders = self.root_paths_override
         return creds
 
+    async def persist_tokens(self, credentials: OnboardingData) -> None:
+        """Store a refreshed token, so a rotated one does not leave the saved one dead."""
+        if not self.credential_id:
+            return
+
+        await self.um_sdk.update_credentials(
+            data=OnboardingData(
+                source=credentials.source,
+                integration_type=credentials.integration_type,
+                api_key=credentials.api_key,
+                refresh_token=credentials.refresh_token,
+            ),
+            credential_id=self.credential_id,
+        )
+
     async def list_tree(self, path: str = "") -> Tuple[List[ResourceNode], bool]:
         return [], False
 

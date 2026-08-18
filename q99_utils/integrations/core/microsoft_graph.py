@@ -11,7 +11,11 @@ from typing import Any, AsyncIterator, Dict, Optional
 
 import httpx
 
-from q99_utils.integrations.core.exceptions import IntegrationError, ResourceNotFound
+from q99_utils.integrations.core.exceptions import (
+    CredentialExpired,
+    IntegrationError,
+    ResourceNotFound,
+)
 from q99_utils.models import OnboardingData
 
 GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
@@ -76,6 +80,7 @@ async def refresh_delegated_token(
     refresh_token: str,
     scopes: str = DELEGATED_MAIL_SCOPES,
     timeout: int = DEFAULT_TIMEOUT,
+    source: Optional[str] = None,
 ) -> dict:
     """Trade a refresh token for a fresh delegated access token.
 
@@ -97,8 +102,22 @@ async def refresh_delegated_token(
         response = await client.post(
             TOKEN_URL_TEMPLATE.format(tenant_id=tenant_id or "common"), data=data
         )
+        if response.status_code >= 400 and _is_invalid_grant(response):
+            raise CredentialExpired(
+                "Microsoft no longer accepts this connection. Reconnect the integration "
+                "to grant access again.",
+                source=source,
+            )
         response.raise_for_status()
         return response.json()
+
+
+def _is_invalid_grant(response: httpx.Response) -> bool:
+    """Whether the grant is gone for good. Anything else stays a transient failure."""
+    try:
+        return (response.json() or {}).get("error") == "invalid_grant"
+    except ValueError:
+        return False
 
 
 # Requests

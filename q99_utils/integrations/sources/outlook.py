@@ -9,7 +9,7 @@ here and each host keeps its own grant.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional, Sequence
 
 import httpx
 
@@ -98,16 +98,22 @@ class DelegatedTokenExpired(RuntimeError):
 class GraphMailClient:
     """POSTs to Graph on behalf of a user, refreshing the token once on 401.
 
-    Holds the refreshed credentials in memory only. Persisting them back to the
-    credential store is the host's job — it owns the SDK and the credential id.
+    ``on_refresh`` runs after each refresh: persisting is the host's job, and it
+    cannot know a rotated token arrived unless it is told.
     """
 
-    def __init__(self, credentials: OnboardingData, timeout: int = DEFAULT_TIMEOUT) -> None:
+    def __init__(
+        self,
+        credentials: OnboardingData,
+        timeout: int = DEFAULT_TIMEOUT,
+        on_refresh: Optional[Callable[[OnboardingData], Awaitable[None]]] = None,
+    ) -> None:
         if not credentials or not credentials.api_key:
             raise ValueError("Outlook credentials are missing an access token")
         self.credentials = credentials
         self._token = credentials.api_key
         self._timeout = timeout
+        self._on_refresh = on_refresh
 
     @property
     def access_token(self) -> str:
@@ -158,11 +164,15 @@ class GraphMailClient:
             client_id=creds.client_id,
             client_secret=creds.client_secret,
             refresh_token=creds.refresh_token,
+            source=creds.source,
         )
         self._token = payload["access_token"]
         creds.api_key = payload["access_token"]
         if payload.get("refresh_token"):
             creds.refresh_token = payload["refresh_token"]
+
+        if self._on_refresh:
+            await self._on_refresh(creds)
 
     async def send_mail(
         self,
@@ -188,8 +198,16 @@ class GraphMailClient:
 class OutlookIntegration(SourceIntegrationInterface):
 
     async def client(self, data: Optional[OnboardingData] = None) -> GraphMailClient:
-        credentials = data or await self.get_credentials()
-        return GraphMailClient(credentials)
+        """A mail client that writes back whatever it refreshes.
+
+        Credentials handed in directly belong to a caller that has not stored them
+        yet — onboarding — so those do not get persisted.
+        """
+        if data:
+            return GraphMailClient(data)
+
+        credentials = await self.get_credentials()
+        return GraphMailClient(credentials, on_refresh=self.persist_tokens)
 
 
 __all__ = [

@@ -8,12 +8,18 @@ import io
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
 
-from q99_utils.integrations.core import SourceIntegrationInterface, classify_change, register
+from q99_utils.integrations.core import (
+    SourceIntegrationInterface,
+    classify_change,
+    register,
+    translate_refresh_error,
+)
 from q99_utils.integrations.discovery import ChangeKind, DiscoveredFile, ResourceNode
 from q99_utils.models import PermissionTokens
 
@@ -148,6 +154,13 @@ class GoogleDriveIntegration(SourceIntegrationInterface):
     # File discovery
 
     async def files_discovery(self) -> Tuple[List[DiscoveredFile], dict]:
+        """The one door in, so a revoked Drive is not read as a source without files."""
+        try:
+            return await self._files_discovery()
+        except RefreshError as exc:
+            translate_refresh_error(exc, source=self.source)
+
+    async def _files_discovery(self) -> Tuple[List[DiscoveredFile], dict]:
         store = self.context.file_store
 
         credentials: OnboardingData = await self.get_credentials()

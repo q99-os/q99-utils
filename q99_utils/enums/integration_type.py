@@ -16,6 +16,7 @@ class IntegrationTypeEnum(StrEnum):
     greenapi_partner = "greenapi-partner"
     external_api = "external_api"
     sso = "sso"
+    oauth_app = "oauth_app"
 
 
 __all__ = ["IntegrationTypeEnum"]

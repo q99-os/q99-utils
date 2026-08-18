@@ -110,6 +110,12 @@ class UserManagerSDK:
 
         return await self._request(method="PATCH", url=patch_url, json={"is_active": False})
 
+    async def report_connection_lost(self, credential_id: str):
+        """Report a dead grant. Unlike deactivate_credential, this reaches its owner."""
+        url = f"{USER_MANAGER_URL}/v1/credentials/{credential_id}/connection-lost/"
+
+        return await self._request(method="POST", url=url)
+
     async def validate_token(
         self,
         *,

@@ -49,6 +49,15 @@ def test_google_sso_is_registered_for_its_source():
     )
 
 
+def test_the_same_probe_serves_the_company_oauth_app():
+    # Drive and Gmail consent against one Google app, and validating it is the
+    # same client-authentication probe SSO already uses.
+    assert (
+        get_integration_class(SourceEnum.google_oauth_app)
+        is GoogleSsoIntegration
+    )
+
+
 # The two documented outcomes
 
 

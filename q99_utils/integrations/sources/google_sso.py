@@ -1,8 +1,9 @@
-"""Google SSO OAuth client integration — credential validation only.
+"""Google OAuth client integration — credential validation only.
 
-These credentials back Google SSO login, which the User Manager performs; there
-is nothing for this class to read from Google. All it does is prove, at
-onboarding time, that a client ID and secret are real.
+These credentials back Google SSO login, which the User Manager performs, and the
+company OAuth app that Drive and Gmail consent against; there is nothing for this
+class to read from Google. All it does is prove, at onboarding time, that a client
+ID and secret are real.
 
 Google publishes no endpoint for verifying an OAuth *web* client — there is no
 client-credentials flow, and the authorization-code flow needs a user redirect.
@@ -55,7 +56,8 @@ _REJECTED_MESSAGE = (
 )
 
 
-@register(SourceEnum.google_sso)
+# Also serves 'google_oauth_app': the probe authenticates a Google OAuth web client.
+@register(SourceEnum.google_sso, SourceEnum.google_oauth_app)
 class GoogleSsoIntegration(SourceIntegrationInterface):
 
     async def test_connection(self, data: Optional[OnboardingData] = None) -> None:
