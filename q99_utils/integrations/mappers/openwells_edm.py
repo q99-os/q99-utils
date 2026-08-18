@@ -66,7 +66,7 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 npt_level,
                 failure_id,
                 daily_id,
-                CAST(activity_memo AS NVARCHAR(MAX)) as activity_memo,
+                activity_memo,
                 md_from,
                 md_to,
                 off_bottom_torque,
@@ -281,7 +281,7 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 t.is_replaced,
                 t.centralize,
                 t.letter_code,
-                CAST(t.comments AS NVARCHAR(MAX)) AS comments,
+                t.comments,
                 d.comp_name,
                 d.description,
                 d.nominal_size,
@@ -414,7 +414,7 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 is_toc_sufficient,
                 num_squeezes,
                 pipe_movement_desc,
-                CAST(cement_job_note AS NVARCHAR(MAX)) as cement_job_note,
+                cement_job_note,
                 assembly_id,
                 event_id
             FROM CD_CEMENT_JOB
@@ -435,7 +435,7 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
         sql = """
             SELECT
                 ef.failure_title,
-                CAST(ef.failure_description AS NVARCHAR(MAX)) AS failure_description,
+                ef.failure_description,
                 ef.date_failure_start,
                 ef.date_failure_end,
                 ef.failure_duration,
