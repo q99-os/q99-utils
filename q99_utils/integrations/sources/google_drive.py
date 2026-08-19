@@ -120,6 +120,22 @@ class GoogleDriveIntegration(SourceIntegrationInterface):
         *args,
         **kwargs,
     ):
+        """The second door in: a grant can die between the discovery and the download."""
+        try:
+            return await self._get_files_from_path(
+                file_path, metadata, config, *args, **kwargs
+            )
+        except RefreshError as exc:
+            translate_refresh_error(exc, source=self.source)
+
+    async def _get_files_from_path(
+        self,
+        file_path: str,
+        metadata: Dict[str, Any] = None,
+        config: Optional[Dict[str, Any]] = None,
+        *args,
+        **kwargs,
+    ):
         credentials: OnboardingData = await self.get_credentials()
         service = await self.get_service(service_name="drive", credentials=credentials)
 
@@ -154,7 +170,7 @@ class GoogleDriveIntegration(SourceIntegrationInterface):
     # File discovery
 
     async def files_discovery(self) -> Tuple[List[DiscoveredFile], dict]:
-        """The one door in, so a revoked Drive is not read as a source without files."""
+        """Guarded, so a revoked Drive is not read as a source that ran out of files."""
         try:
             return await self._files_discovery()
         except RefreshError as exc:
