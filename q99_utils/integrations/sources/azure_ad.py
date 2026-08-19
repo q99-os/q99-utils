@@ -34,8 +34,7 @@ GROUP_SELECT = "$select=id,displayName"
 GROUP_ODATA_TYPE = "#microsoft.graph.group"
 
 
-# All three are the same app registration. Validate SSO and app credentials with
-# get_access_token: test_connection also demands Group.Read.All, which they lack.
+# One app registration for the three: validated with get_access_token, not test_connection.
 @register(SourceEnum.azure_ad, SourceEnum.microsoft_sso, SourceEnum.microsoft_oauth_app)
 class AzureADIntegration(MicrosoftGraphAuth, SourceIntegrationInterface):
 
