@@ -56,7 +56,6 @@ _REJECTED_MESSAGE = (
 )
 
 
-# Also serves 'google_oauth_app': the probe authenticates a Google OAuth web client.
 @register(SourceEnum.google_sso, SourceEnum.google_oauth_app)
 class GoogleSsoIntegration(SourceIntegrationInterface):
 

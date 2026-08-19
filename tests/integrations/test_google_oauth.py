@@ -18,7 +18,6 @@ class RefreshError(Exception):
     """Same shape google.auth.exceptions.RefreshError arrives with."""
 
 
-# The grant is gone
 
 
 def test_the_parsed_body_google_sends_is_recognised():
@@ -51,7 +50,6 @@ def test_the_original_failure_is_kept_as_the_cause():
     assert exc_info.value.__cause__ is error
 
 
-# Everything else gets retried
 
 
 @pytest.mark.parametrize(

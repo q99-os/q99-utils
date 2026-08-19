@@ -235,7 +235,6 @@ async def test_refresh_without_rotation_keeps_the_old_one(monkeypatch, credentia
     assert client.credentials.refresh_token == "refresh-1"
 
 
-# What survives the process
 
 
 async def test_a_refresh_reaches_the_host_so_it_can_be_stored(monkeypatch, credentials):
