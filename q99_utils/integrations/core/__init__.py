@@ -2,7 +2,9 @@
 
 from q99_utils.integrations.core.change_detection import classify_change
 from q99_utils.integrations.core.context import IntegrationConfig, IntegrationContext
+from q99_utils.integrations.core.google_oauth import translate_refresh_error
 from q99_utils.integrations.core.exceptions import (
+    CredentialExpired,
     CredentialValidationError,
     IntegrationError,
     ResourceNotFound,
@@ -29,6 +31,8 @@ from q99_utils.integrations.core.source import SourceIntegrationInterface
 from q99_utils.integrations.core.sql_source import SqlIntegrationBase
 
 __all__ = [
+    "CredentialExpired",
+    "translate_refresh_error",
     "CredentialValidationError",
     "DELEGATED_MAIL_SCOPES",
     "GRAPH_BASE_URL",

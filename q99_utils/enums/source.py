@@ -29,6 +29,8 @@ class SourceEnum(StrEnum):
     # so an SSO credential and a group-sync credential never share a source.
     microsoft_sso = "microsoft_sso"
     google_sso = "google_sso"
+    google_oauth_app = "google_oauth_app"
+    microsoft_oauth_app = "microsoft_oauth_app"
 
 
 __all__ = ["SourceEnum"]

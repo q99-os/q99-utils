@@ -134,8 +134,7 @@ async def test_error_is_framework_agnostic(monkeypatch, integration, credentials
     )
 
 
-def test_serves_both_azure_ad_and_microsoft_sso():
-    # One app registration backs group sync and SSO login, so both sources map
-    # here — but they stay separate sources so their credentials never collide.
+def test_serves_azure_ad_sso_and_the_oauth_app():
     assert get_integration_class(SourceEnum.azure_ad) is AzureADIntegration
     assert get_integration_class(SourceEnum.microsoft_sso) is AzureADIntegration
+    assert get_integration_class(SourceEnum.microsoft_oauth_app) is AzureADIntegration

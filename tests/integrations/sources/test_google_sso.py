@@ -49,6 +49,13 @@ def test_google_sso_is_registered_for_its_source():
     )
 
 
+def test_the_same_probe_serves_the_company_oauth_app():
+    assert (
+        get_integration_class(SourceEnum.google_oauth_app)
+        is GoogleSsoIntegration
+    )
+
+
 # The two documented outcomes
 
 
