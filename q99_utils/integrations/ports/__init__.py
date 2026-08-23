@@ -1,5 +1,6 @@
 """What an integration needs from its host, as structural protocols."""
 
+from q99_utils.integrations.ports.company_app import CompanyAppProvider
 from q99_utils.integrations.ports.files import FileReferenceStore, IndexedFile
 from q99_utils.integrations.ports.sql import (
     ConnectionRegistry,
@@ -15,6 +16,7 @@ from q99_utils.integrations.ports.storage import (
 )
 
 __all__ = [
+    "CompanyAppProvider",
     "ConnectionRegistry",
     "FileReferenceStore",
     "InMemoryConnectionRegistry",

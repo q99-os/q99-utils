@@ -94,6 +94,7 @@ class GoogleDriveIntegration(SourceIntegrationInterface):
     # Auth and client
 
     async def get_access_token(self, data: OnboardingData):
+        data = await self.with_company_app(data)
         return Credentials(
             token=data.api_key,
             refresh_token=data.refresh_token,

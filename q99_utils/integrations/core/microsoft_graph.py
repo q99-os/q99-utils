@@ -197,10 +197,9 @@ class MicrosoftGraphAuth:
     """
 
     async def get_access_token(self, data: Optional[OnboardingData] = None) -> Optional[str]:
-        if data:
-            self.credentials = data.model_dump()
-        else:
-            await self.get_credentials()
+        credentials = data if data is not None else await self.get_credentials()
+        credentials = await self.with_company_app(credentials)
+        self.credentials = credentials.model_dump()
 
         return await acquire_graph_token(
             tenant_id=self.credentials["tenant_id"],

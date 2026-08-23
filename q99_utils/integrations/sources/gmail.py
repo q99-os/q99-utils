@@ -114,7 +114,7 @@ def build_gmail_service(
 class GmailIntegration(SourceIntegrationInterface):
 
     async def service(self, data: Optional[OnboardingData] = None):
-        credentials = data or await self.get_credentials()
+        credentials = await self.with_company_app(data or await self.get_credentials())
         return build_gmail_service(
             access_token=credentials.api_key,
             refresh_token=credentials.refresh_token,

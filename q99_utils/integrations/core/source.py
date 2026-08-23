@@ -5,12 +5,16 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from q99_utils.integrations.core.company_apps import app_source_for
 from q99_utils.integrations.core.context import IntegrationContext
 from q99_utils.integrations.discovery import DiscoveredFile, ResourceNode
+from q99_utils.logger import get_logger
 from q99_utils.models import PermissionTokens
 from q99_utils.enums import SourceEnum
 from q99_utils.models import OnboardingData
 from q99_utils.um_sdk import UserManagerSDK
+
+logger = get_logger(__name__)
 
 
 class SourceIntegrationInterface:
@@ -42,6 +46,41 @@ class SourceIntegrationInterface:
         if self.root_paths_override:
             creds.root_folders = self.root_paths_override
         return creds
+
+    async def with_company_app(self, credentials: OnboardingData) -> OnboardingData:
+        """The credentials to build a token with, preferring the company's OAuth app.
+
+        Reading the app is what makes a rotated secret reach every integration at once,
+        instead of each one keeping the copy it was given the day it was connected.
+
+        Anything that stops that answer from arriving — no host provider, a source with
+        no app, an unreachable User Manager — falls back to the stored copy rather than
+        failing. A deployment that never wires the provider keeps working exactly as
+        before, which is what makes this safe to roll out.
+        """
+        provider = self.context.company_app
+        app_source = app_source_for(self.source)
+        if provider is None or app_source is None:
+            return credentials
+
+        try:
+            app = await provider.app_credentials(str(app_source))
+        except Exception:
+            logger.warning(
+                "Could not read the '%s' app; using the stored credentials", app_source,
+                exc_info=True,
+            )
+            return credentials
+
+        if not app:
+            return credentials
+
+        return credentials.model_copy(
+            update={
+                field: app.get(field) or getattr(credentials, field, None)
+                for field in ("client_id", "client_secret", "tenant_id")
+            }
+        )
 
     async def persist_tokens(self, credentials: OnboardingData) -> None:
         """Store a refreshed token, so a rotated one does not leave the saved one dead."""
