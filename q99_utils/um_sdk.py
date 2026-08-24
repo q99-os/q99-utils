@@ -190,7 +190,7 @@ class UserManagerSDK:
         if conversation_id is not None:
             payload["conversation_id"] = conversation_id
         if parent_interaction_id is not None:
-            payload["parent_interaction"] = parent_interaction_id # que alguien me explique porq este no tiene id ._. // Porque no todos tienen ocd como vos' id = _id nmw
+            payload["parent_interaction"] = parent_interaction_id
         if title is not None:
             payload["title"] = title
         if feature is not None:
