@@ -6,6 +6,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from q99_utils.integrations.ports import (
+    CompanyAppProvider,
     ConnectionRegistry,
     FileReferenceStore,
     InMemoryConnectionRegistry,
@@ -61,6 +62,8 @@ class IntegrationContext:
     file_store: Optional[FileReferenceStore] = None
     storage_factory: Optional[StorageServiceFactory] = None
     managed_bucket: Optional[ManagedBucketProvider] = None
+    #: Reads the company OAuth app. Without it, each credential uses its own copy.
+    company_app: Optional[CompanyAppProvider] = None
 
 
 __all__ = ["IntegrationConfig", "IntegrationContext"]

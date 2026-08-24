@@ -8,35 +8,48 @@ from __future__ import annotations
 
 from typing import Any, NoReturn
 
-from q99_utils.integrations.core.exceptions import CredentialExpired
+from q99_utils.integrations.core.exceptions import AppCredentialExpired, CredentialExpired
 from q99_utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 INVALID_GRANT = "invalid_grant"
+INVALID_CLIENT = "invalid_client"
 
 _RECONNECT_MESSAGE = (
     "Google no longer accepts this connection. Reconnect the integration to grant "
     "access again."
 )
 
+_APP_REJECTED_MESSAGE = (
+    "Google rejected the company Google application. Its client secret was rotated "
+    "or expired, and an administrator has to update it."
+)
 
-def _mentions_invalid_grant(error: BaseException) -> bool:
+
+def _mentions(error: BaseException, code: str) -> bool:
     """Both shapes: Google sends the parsed body when it answers JSON, text when not."""
     for arg in getattr(error, "args", ()):
-        if isinstance(arg, dict) and arg.get("error") == INVALID_GRANT:
+        if isinstance(arg, dict) and arg.get("error") == code:
             return True
-        if isinstance(arg, str) and INVALID_GRANT in arg:
+        if isinstance(arg, str) and code in arg:
             return True
     return False
 
 
 def translate_refresh_error(error: BaseException, *, source: Any) -> NoReturn:
-    """Raise CredentialExpired for a dead grant; re-raise anything else untouched."""
-    if _mentions_invalid_grant(error):
+    """Sort a dead grant from a dead app; re-raise anything else untouched.
+
+    The app is checked first: a request carrying a rejected client never gets far
+    enough for the grant to be judged, and the two need opposite answers.
+    """
+    if _mentions(error, INVALID_CLIENT):
+        logger.warning("Google rejected the company app while refreshing %s", source)
+        raise AppCredentialExpired(_APP_REJECTED_MESSAGE, source=str(source)) from error
+    if _mentions(error, INVALID_GRANT):
         logger.warning("Google rejected the stored grant for %s", source)
         raise CredentialExpired(_RECONNECT_MESSAGE, source=str(source)) from error
     raise error
 
 
-__all__ = ["INVALID_GRANT", "translate_refresh_error"]
+__all__ = ["INVALID_CLIENT", "INVALID_GRANT", "translate_refresh_error"]

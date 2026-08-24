@@ -12,6 +12,7 @@ import httpx
 
 from q99_utils.integrations.core import (
     GRAPH_BASE_URL,
+    AppCredentialExpired,
     CredentialValidationError,
     MicrosoftGraphAuth,
     SourceIntegrationInterface,
@@ -42,7 +43,7 @@ class AzureADIntegration(MicrosoftGraphAuth, SourceIntegrationInterface):
     async def test_connection(self, data: OnboardingData):
         try:
             access_token = await self.get_access_token(data=data)
-        except httpx.HTTPError:
+        except (AppCredentialExpired, httpx.HTTPError):
             logger.warning("Azure AD token acquisition failed", exc_info=True)
             raise CredentialValidationError(
                 "Azure AD authentication failed: could not acquire access token. "

@@ -53,9 +53,28 @@ class CredentialExpired(IntegrationError):
         return self.message
 
 
+class AppCredentialExpired(IntegrationError):
+    """The provider rejected the company's OAuth app, not this credential.
+
+    Split from CredentialExpired because the two need opposite answers: a dead grant
+    is the owner's to reconnect, while a dead app secret takes every integration
+    running against it down at once and only an administrator can replace it. Telling
+    the owner to reconnect would send them around a loop that cannot succeed.
+    """
+
+    def __init__(self, message: str, *, source: Optional[str] = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.source = source
+
+    def __str__(self) -> str:
+        return self.message
+
+
 __all__ = [
     "IntegrationError",
     "CredentialValidationError",
+    "AppCredentialExpired",
     "CredentialExpired",
     "ResourceNotFound",
 ]

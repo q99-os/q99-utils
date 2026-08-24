@@ -204,9 +204,9 @@ class OutlookIntegration(SourceIntegrationInterface):
         yet — onboarding — so those do not get persisted.
         """
         if data:
-            return GraphMailClient(data)
+            return GraphMailClient(await self.with_company_app(data))
 
-        credentials = await self.get_credentials()
+        credentials = await self.with_company_app(await self.get_credentials())
         return GraphMailClient(credentials, on_refresh=self.persist_tokens)
 
 

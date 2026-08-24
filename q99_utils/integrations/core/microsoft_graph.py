@@ -12,6 +12,7 @@ from typing import Any, AsyncIterator, Dict, Optional
 import httpx
 
 from q99_utils.integrations.core.exceptions import (
+    AppCredentialExpired,
     CredentialExpired,
     IntegrationError,
     ResourceNotFound,
@@ -20,6 +21,11 @@ from q99_utils.models import OnboardingData
 
 GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
 GRAPH_SCOPE = "https://graph.microsoft.com/.default"
+
+APP_REJECTED_MESSAGE = (
+    "Microsoft rejected the company Microsoft application. Its client secret was "
+    "rotated or expired, and an administrator has to update it."
+)
 TOKEN_URL_TEMPLATE = "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
 
 DELEGATED_MAIL_SCOPES = "openid profile email offline_access User.Read Mail.Send"
@@ -51,6 +57,8 @@ async def request_graph_token(
         response = await client.post(
             TOKEN_URL_TEMPLATE.format(tenant_id=tenant_id), data=token_data
         )
+        if response.status_code >= 400 and _is_invalid_client(response):
+            raise AppCredentialExpired(APP_REJECTED_MESSAGE)
         response.raise_for_status()
         return response.json()
 
@@ -102,6 +110,8 @@ async def refresh_delegated_token(
         response = await client.post(
             TOKEN_URL_TEMPLATE.format(tenant_id=tenant_id or "common"), data=data
         )
+        if response.status_code >= 400 and _is_invalid_client(response):
+            raise AppCredentialExpired(APP_REJECTED_MESSAGE, source=source)
         if response.status_code >= 400 and _is_invalid_grant(response):
             raise CredentialExpired(
                 "Microsoft no longer accepts this connection. Reconnect the integration "
@@ -112,12 +122,22 @@ async def refresh_delegated_token(
         return response.json()
 
 
+def _error_code(response: httpx.Response) -> str:
+    """The OAuth error code, or empty when the body is not the JSON they document."""
+    try:
+        return (response.json() or {}).get("error") or ""
+    except ValueError:
+        return ""
+
+
 def _is_invalid_grant(response: httpx.Response) -> bool:
     """Whether the grant is gone for good. Anything else stays a transient failure."""
-    try:
-        return (response.json() or {}).get("error") == "invalid_grant"
-    except ValueError:
-        return False
+    return _error_code(response) == "invalid_grant"
+
+
+def _is_invalid_client(response: httpx.Response) -> bool:
+    """Whether the app itself was rejected: its secret was rotated or expired."""
+    return _error_code(response) == "invalid_client"
 
 
 # Requests
@@ -177,10 +197,9 @@ class MicrosoftGraphAuth:
     """
 
     async def get_access_token(self, data: Optional[OnboardingData] = None) -> Optional[str]:
-        if data:
-            self.credentials = data.model_dump()
-        else:
-            await self.get_credentials()
+        credentials = data if data is not None else await self.get_credentials()
+        credentials = await self.with_company_app(credentials)
+        self.credentials = credentials.model_dump()
 
         return await acquire_graph_token(
             tenant_id=self.credentials["tenant_id"],
@@ -190,6 +209,7 @@ class MicrosoftGraphAuth:
 
 
 __all__ = [
+    "APP_REJECTED_MESSAGE",
     "DELEGATED_MAIL_SCOPES",
     "GRAPH_BASE_URL",
     "GRAPH_SCOPE",
