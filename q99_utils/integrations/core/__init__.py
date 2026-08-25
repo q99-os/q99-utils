@@ -13,6 +13,9 @@ from q99_utils.integrations.core.exceptions import (
 )
 from q99_utils.integrations.core.microsoft_graph import (
     DELEGATED_MAIL_SCOPES,
+    DELEGATED_TEAMS_SCOPES,
+    DelegatedGraphClient,
+    DelegatedTokenExpired,
     GRAPH_BASE_URL,
     GRAPH_SCOPE,
     MicrosoftGraphAuth,
@@ -40,6 +43,9 @@ __all__ = [
     "translate_refresh_error",
     "CredentialValidationError",
     "DELEGATED_MAIL_SCOPES",
+    "DELEGATED_TEAMS_SCOPES",
+    "DelegatedGraphClient",
+    "DelegatedTokenExpired",
     "GRAPH_BASE_URL",
     "GRAPH_SCOPE",
     "IntegrationConfig",
