@@ -12,6 +12,8 @@ endpoints Teams needs and the shape of a ``chatMessage``.
 
 from __future__ import annotations
 
+import re
+from html import unescape
 from typing import Any, Dict, List, Optional
 
 from q99_utils.integrations.core import (
@@ -37,8 +39,14 @@ USERS = "/users"
 USER_BY_ADDRESS = "/users/{address}"
 ME = "/me"
 
+SEARCH_QUERY = "/search/query"
+
 EVENTUAL = {"ConsistencyLevel": "eventual"}
 SEARCH_LIMIT = 10
+HISTORY_LIMIT = 10
+
+CHAT_MESSAGE_ENTITY = "chatMessage"
+PLAIN_MESSAGE = "message"
 
 HTML_CONTENT = "html"
 TEXT_CONTENT = "text"
@@ -51,6 +59,64 @@ OWNER_ROLE = "owner"
 def message_body(text: str, *, content_type: str = HTML_CONTENT) -> Dict[str, Any]:
     """A Graph ``chatMessage`` body. Teams spells the type lowercase."""
     return {"body": {"contentType": content_type, "content": text}}
+
+
+def _plain(body: Optional[Dict[str, Any]]) -> str:
+    """The text of a message body, with Teams' markup taken out.
+
+    A ``chatMessage`` arrives as HTML even when the person typed plain text: mentions,
+    emoji and inline images are tags. What reads it is an agent, so the tags go and
+    what they wrapped stays.
+    """
+    body = body or {}
+    content = body.get("content") or ""
+    if body.get("contentType") != HTML_CONTENT:
+        return content.strip()
+
+    without_tags = unescape(re.sub(r"<[^>]+>", " ", content))
+    spaced = re.sub(r"\s+", " ", without_tags)
+    return re.sub(r"\s+([,.;:!?])", r"\1", spaced).strip()
+
+
+def _said(message: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """One message as ``{from, at, text}``, or nothing when it is not one.
+
+    Teams keeps joins, renames and deletions in the same list as what people wrote,
+    and none of that is worth handing to an agent as conversation.
+    """
+    if message.get("messageType") != PLAIN_MESSAGE or message.get("deletedDateTime"):
+        return None
+    text = _plain(message.get("body"))
+    if not text:
+        return None
+    author = ((message.get("from") or {}).get("user") or {}).get("displayName")
+    return {"from": author or "unknown", "at": message.get("createdDateTime") or "", "text": text}
+
+
+def _conversation(items: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """The messages of a thread, newest first.
+
+    Ordered here rather than trusted from Graph: what it sorts by is not the same for
+    a channel and for a chat, and the agent is answering "what was said last".
+    """
+    said = [one for one in (_said(item) for item in items) if one]
+    return sorted(said, key=lambda one: one["at"], reverse=True)
+
+
+def _hits(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The messages inside a Search answer.
+
+    The Search API nests every result three levels down, and one request can come back
+    as several containers.
+    """
+    found: List[Dict[str, Any]] = []
+    for answer in payload.get("value") or []:
+        for container in answer.get("hitsContainers") or []:
+            for hit in container.get("hits") or []:
+                resource = hit.get("resource")
+                if resource:
+                    found.append(resource)
+    return found
 
 
 def _named(items: List[Dict[str, Any]]) -> List[Dict[str, str]]:
@@ -91,6 +157,56 @@ class TeamsClient(DelegatedGraphClient):
             CHANNEL_MESSAGES.format(team_id=team_id, channel_id=channel_id),
             body=message_body(text, content_type=content_type),
         )
+
+    async def channel_messages(
+        self, *, team_id: str, channel_id: str, limit: int = HISTORY_LIMIT
+    ) -> List[Dict[str, str]]:
+        """What was said last in a channel."""
+        payload = await self.get(
+            CHANNEL_MESSAGES.format(team_id=team_id, channel_id=channel_id),
+            {"$top": str(limit)},
+        )
+        return _conversation(payload.get("value") or [])
+
+    async def chat_messages(
+        self, *, address: str, limit: int = HISTORY_LIMIT
+    ) -> List[Dict[str, str]]:
+        """What was said last in the one-on-one chat with that person.
+
+        Resolved the same way as sending. A chat that does not exist yet answers
+        empty, because the one Graph opens carries no message.
+        """
+        chat_id = await self.direct_chat(address)
+        payload = await self.get(CHAT_MESSAGES.format(chat_id=chat_id), {"$top": str(limit)})
+        return _conversation(payload.get("value") or [])
+
+    async def search_messages(
+        self, query: str, limit: int = SEARCH_LIMIT
+    ) -> List[Dict[str, str]]:
+        """Messages the account can see that match the query.
+
+        Graph has no message search of its own for a channel or a chat: the Search API
+        is the only one that reaches ``chatMessage``, and it answers across everything
+        the person has access to rather than inside one place.
+        """
+        wanted = (query or "").strip()
+        if not wanted:
+            return []
+
+        payload = await self.post(
+            SEARCH_QUERY,
+            body={
+                "requests": [
+                    {
+                        "entityTypes": [CHAT_MESSAGE_ENTITY],
+                        "query": {"queryString": wanted},
+                        "from": 0,
+                        "size": limit,
+                    }
+                ]
+            },
+        )
+        return _conversation(_hits(payload))
 
     async def find_people(self, query: str, limit: int = SEARCH_LIMIT) -> List[Dict[str, str]]:
         """People in the directory whose name or address matches.
@@ -209,9 +325,11 @@ class TeamsIntegration(SourceIntegrationInterface):
 
 __all__ = [
     "CHATS",
+    "HISTORY_LIMIT",
     "HTML_CONTENT",
     "JOINED_TEAMS",
     "SEARCH_LIMIT",
+    "SEARCH_QUERY",
     "TEXT_CONTENT",
     "TeamsClient",
     "TeamsIntegration",

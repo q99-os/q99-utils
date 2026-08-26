@@ -32,8 +32,8 @@ DELEGATED_MAIL_SCOPES = "openid profile email offline_access User.Read Mail.Send
 
 DELEGATED_TEAMS_SCOPES = (
     "openid profile email offline_access User.Read "
-    "Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Send "
-    "Chat.Create ChatMessage.Send User.ReadBasic.All"
+    "Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Send ChannelMessage.Read.All "
+    "Chat.Create ChatMessage.Send Chat.Read User.ReadBasic.All"
 )
 
 DEFAULT_TIMEOUT = 120
