@@ -111,11 +111,11 @@ def test_every_delegated_and_app_only_source_knows_its_app():
     assert str(app_source_for("gmail")) == "google_oauth_app"
     assert str(app_source_for("outlook")) == "microsoft_oauth_app"
     assert str(app_source_for("sharepoint")) == "microsoft_oauth_app"
-    assert str(app_source_for("azure_ad")) == "microsoft_oauth_app"
 
 
 def test_a_source_that_brings_its_own_credentials_has_no_app():
     from q99_utils.integrations.core import app_source_for
 
+    assert app_source_for("azure_ad") is None
     assert app_source_for("slack") is None
     assert app_source_for("not_a_source") is None
