@@ -103,6 +103,22 @@ class GoogleDriveIntegration(SourceIntegrationInterface):
             client_secret=data.client_secret,
         )
 
+    async def test_connection(self, data: Optional[OnboardingData] = None) -> None:
+        """Force a real refresh against Google.
+
+        Proves the refresh_token still works with the current company app,
+        regardless of whether the cached access token happens to still look
+        valid — a stale-but-unexpired token would let a plain API call pass
+        without ever exercising the refresh_token at all.
+        """
+        from google.auth.transport.requests import Request
+
+        credentials = await self.get_access_token(data or await self.get_credentials())
+        try:
+            await asyncio.to_thread(credentials.refresh, Request())
+        except RefreshError as exc:
+            translate_refresh_error(exc, source=self.source)
+
     async def get_service(self, service_name: str, credentials: OnboardingData, version: str = "v3"):
         access = await self.get_access_token(credentials)
         try:
@@ -475,6 +491,8 @@ class GoogleDriveIntegration(SourceIntegrationInterface):
                     raise ChangesTokenExpired() from e
                 logger.warning("[GoogleDriveIntegration] Changes API error", exc_info=True)
                 break
+            except RefreshError:
+                raise
             except Exception:
                 logger.warning("[GoogleDriveIntegration] Changes API error", exc_info=True)
                 break
@@ -719,6 +737,14 @@ class GoogleDriveIntegration(SourceIntegrationInterface):
         return sorted(folders, key=lambda f: f["name"].lower())
 
     async def list_tree(self, path: str = "") -> Tuple[List[ResourceNode], bool]:
+        """Guarded like files_discovery: a dead token must surface as one, not
+        as an empty tree or a raw traceback."""
+        try:
+            return await self._list_tree(path)
+        except RefreshError as exc:
+            translate_refresh_error(exc, source=self.source)
+
+    async def _list_tree(self, path: str = "") -> Tuple[List[ResourceNode], bool]:
         credentials: OnboardingData = await self.get_credentials()
         service = await self.get_service(service_name="drive", credentials=credentials)
 
@@ -731,6 +757,8 @@ class GoogleDriveIntegration(SourceIntegrationInterface):
 
         try:
             children_data = await asyncio.to_thread(self._list_folder_children, service, folder_id)
+        except RefreshError:
+            raise
         except Exception:
             logger.warning(f"[GoogleDriveIntegration] list_tree error for {folder_id}", exc_info=True)
             return [], False
