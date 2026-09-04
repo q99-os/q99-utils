@@ -78,6 +78,16 @@ class UserManagerSDK:
             params["integration-type"] = integration_type
         return await self._request(method="GET", url=url, params=params)
 
+    async def get_credentials_for_app(self, app_source: str) -> list[dict]:
+        """Every credential — any owner — running against *app_source*.
+
+        Service-only on the User Manager side: crosses every user's personal
+        credentials, which no per-user call can see. Used right after a
+        company app's own credentials change, to settle each dependent.
+        """
+        url = f"{USER_MANAGER_URL}/v1/credentials/dependents/"
+        return await self._request(method="GET", url=url, params={"app_source": app_source})
+
     async def post_credentials(self, data: OnboardingData):
         url = f"{USER_MANAGER_URL}/v1/credentials/"
         

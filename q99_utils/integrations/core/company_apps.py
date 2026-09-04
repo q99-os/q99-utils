@@ -7,7 +7,7 @@ it is declared once here instead of being retyped in each of them.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from q99_utils.enums.source import SourceEnum
 
@@ -28,4 +28,13 @@ def app_source_for(source: Any) -> Optional[SourceEnum]:
         return None
 
 
-__all__ = ["APP_SOURCE_BY_SOURCE", "app_source_for"]
+def sources_for_app(app_source: Any) -> List[SourceEnum]:
+    """Every source that runs against *app_source* — the blast radius of rotating it."""
+    try:
+        target = SourceEnum(str(app_source))
+    except ValueError:
+        return []
+    return [source for source, app in APP_SOURCE_BY_SOURCE.items() if app == target]
+
+
+__all__ = ["APP_SOURCE_BY_SOURCE", "app_source_for", "sources_for_app"]

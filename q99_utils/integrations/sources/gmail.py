@@ -7,13 +7,14 @@ an optional dependency, installed with the ``google`` extra.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any, Dict, Iterable, Optional, Sequence
 
-from q99_utils.integrations.core import SourceIntegrationInterface, register
+from q99_utils.integrations.core import SourceIntegrationInterface, register, translate_refresh_error
 from q99_utils.enums import SourceEnum
 from q99_utils.logger import get_logger
 from q99_utils.models import OnboardingData
@@ -121,6 +122,26 @@ class GmailIntegration(SourceIntegrationInterface):
             client_id=credentials.client_id,
             client_secret=credentials.client_secret,
         )
+
+    async def test_connection(self, data: Optional[OnboardingData] = None) -> None:
+        """Force a real refresh against Google — see google_drive.py's twin
+        method for why a plain API call is not enough on its own."""
+        from google.auth.exceptions import RefreshError
+        from google.auth.transport.requests import Request
+        from google.oauth2.credentials import Credentials
+
+        credentials = await self.with_company_app(data or await self.get_credentials())
+        creds = Credentials(
+            token=credentials.api_key,
+            refresh_token=credentials.refresh_token,
+            client_id=credentials.client_id,
+            client_secret=credentials.client_secret,
+            token_uri=GMAIL_TOKEN_URI,
+        )
+        try:
+            await asyncio.to_thread(creds.refresh, Request())
+        except RefreshError as exc:
+            translate_refresh_error(exc, source=self.source)
 
 
 __all__ = [

@@ -1,7 +1,7 @@
 """The machinery every integration is built on. Concrete ones live in sources/."""
 
 from q99_utils.integrations.core.change_detection import classify_change
-from q99_utils.integrations.core.company_apps import APP_SOURCE_BY_SOURCE, app_source_for
+from q99_utils.integrations.core.company_apps import APP_SOURCE_BY_SOURCE, app_source_for, sources_for_app
 from q99_utils.integrations.core.context import IntegrationConfig, IntegrationContext
 from q99_utils.integrations.core.google_oauth import translate_refresh_error
 from q99_utils.integrations.core.exceptions import (
@@ -37,6 +37,7 @@ __all__ = [
     "AppCredentialExpired",
     "CredentialExpired",
     "app_source_for",
+    "sources_for_app",
     "translate_refresh_error",
     "CredentialValidationError",
     "DELEGATED_MAIL_SCOPES",

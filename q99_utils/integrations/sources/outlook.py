@@ -209,6 +209,16 @@ class OutlookIntegration(SourceIntegrationInterface):
         credentials = await self.with_company_app(await self.get_credentials())
         return GraphMailClient(credentials, on_refresh=self.persist_tokens)
 
+    async def test_connection(self, data: Optional[OnboardingData] = None) -> None:
+        """Force a real refresh against Microsoft Graph.
+
+        refresh_delegated_token already raises AppCredentialExpired/
+        CredentialExpired directly — no translate_refresh_error needed here,
+        that is the Google-specific half of this same problem.
+        """
+        client = await self.client(data)
+        await client.refresh()
+
 
 __all__ = [
     "DEFAULT_TIMEOUT",
