@@ -244,7 +244,7 @@ class TeamsClient(DelegatedGraphClient):
     async def user_id(self, address: str) -> str:
         """The directory id behind an address."""
         stranger = ResourceNotFound(
-            f"Nobody in the organisation has the address {address}",
+            f"Nobody in the organization has the address {address}",
             source=str(SourceEnum.teams),
         )
         try:

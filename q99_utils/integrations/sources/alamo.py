@@ -92,7 +92,7 @@ class AlamoIntegration(SourceIntegrationInterface):
             return HOST_TEMPLATE.format(tenant=credentials.tenant_name)
         raise CredentialValidationError(
             "Alamo Analytics needs either a tenant name or an explicit API base URL. "
-            "The tenant is the identifier Alamo assigned to your organisation.",
+            "The tenant is the identifier Alamo assigned to your organization.",
             source=str(self.source),
         )
 
