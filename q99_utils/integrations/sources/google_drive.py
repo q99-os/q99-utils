@@ -16,8 +16,10 @@ from googleapiclient.http import MediaIoBaseDownload
 
 from q99_utils.integrations.core import (
     SourceIntegrationInterface,
-    classify_change,
+    identify_change,
+    references_by_file_id,
     register,
+    removals,
     translate_refresh_error,
 )
 from q99_utils.integrations.discovery import ChangeKind, DiscoveredFile, ResourceNode
@@ -140,7 +142,7 @@ class GoogleDriveIntegration(SourceIntegrationInterface):
         credentials: OnboardingData = await self.get_credentials()
         service = await self.get_service(service_name="drive", credentials=credentials)
 
-        file_id = file_path.split("/", 1)[1] if "/" in file_path else file_path
+        file_id = file_path.rsplit("/", 1)[-1]
 
         mime_type = (metadata or {}).get("mime_type") or (metadata or {}).get("mimeType")
         if not mime_type:
@@ -227,12 +229,9 @@ class GoogleDriveIntegration(SourceIntegrationInterface):
         if stored_token:
             root_folder_to_selector: Dict[str, str] = {}
             for rs in effective_roots:
-                try:
-                    fid = await self.resolve_folder_id(service=service, selector=rs)
-                    if fid and fid != "root":
-                        root_folder_to_selector[fid] = rs
-                except Exception:
-                    logger.warning("[GoogleDriveIntegration] resolve_folder_id failed", exc_info=True, extra={"selector": str(rs)})
+                fid = await self.resolve_folder_id(service=service, selector=rs)
+                if fid and fid != "root":
+                    root_folder_to_selector[fid] = rs
 
             try:
                 new_token = await asyncio.to_thread(
@@ -300,6 +299,8 @@ class GoogleDriveIntegration(SourceIntegrationInterface):
         latest_created_at: int,
         credentials: OnboardingData,
     ):
+        refs_by_file_id = references_by_file_id(ingested_refs)
+
         def get_files_recursive(folder_id: str):
             nonlocal d_files
 
@@ -357,24 +358,22 @@ class GoogleDriveIntegration(SourceIntegrationInterface):
                         source_perms = self._extract_permissions(item)
                         is_native_doc = _is_google_native(item_mime)
 
-                        change_kind = ChangeKind.ADDED
-                        if reference in ingested_refs:
-                            stored_modified_at, stored_hash, stored_perms = ingested_refs[reference]
-                            change_kind = classify_change(
-                                stored_modified_at=stored_modified_at,
-                                stored_hash=stored_hash,
-                                stored_perms=stored_perms,
-                                content_hash=content_hash,
-                                source_modified_at=source_modified_at,
-                                source_perms=source_perms,
-                                perm_change_wins=is_native_doc,
-                            )
-                            if change_kind is None:
-                                continue
-                        elif content_hash and content_hash in ingested_hashes:
+                        found = identify_change(
+                            reference=reference,
+                            file_id=item["id"],
+                            ingested_refs=ingested_refs,
+                            refs_by_file_id=refs_by_file_id,
+                            ingested_hashes=ingested_hashes,
+                            content_hash=content_hash,
+                            source_modified_at=source_modified_at,
+                            source_perms=source_perms,
+                            perm_change_wins=is_native_doc,
+                        )
+                        d_files.extend(removals(found.stale_references))
+                        if found.change_kind is None:
                             continue
 
-                        if content_hash and change_kind != ChangeKind.PERMISSIONS_CHANGED:
+                        if content_hash and found.change_kind != ChangeKind.PERMISSIONS_CHANGED:
                             ingested_hashes.add(content_hash)
 
                         d_files.append(DiscoveredFile(
@@ -385,7 +384,8 @@ class GoogleDriveIntegration(SourceIntegrationInterface):
                             file_size=file_size,
                             mime_type=item.get("mimeType"),
                             source_modified_at=source_modified_at,
-                            change_kind=change_kind,
+                            change_kind=found.change_kind,
+                            previous_reference=found.previous_reference,
                         ))
 
                     next_page_token = result.get("nextPageToken")
@@ -449,10 +449,7 @@ class GoogleDriveIntegration(SourceIntegrationInterface):
                 to_check.extend(parent_cache[fid])
             return None
 
-        ref_by_file_id: Dict[str, str] = {}
-        for ref in ingested_refs.keys():
-            fid_part = ref.rsplit("/", 1)[-1] if "/" in ref else ref
-            ref_by_file_id[fid_part] = ref
+        refs_by_file_id = references_by_file_id(ingested_refs)
 
         new_token: Optional[str] = None
         fields = (
@@ -484,13 +481,7 @@ class GoogleDriveIntegration(SourceIntegrationInterface):
                     removed_id = change.get("fileId")
                     if not removed_id:
                         continue
-                    reference = ref_by_file_id.get(removed_id)
-                    if reference is not None:
-                        d_files.append(DiscoveredFile(
-                            name="",
-                            reference=reference,
-                            change_kind=ChangeKind.REMOVED,
-                        ))
+                    d_files.extend(removals(refs_by_file_id.get(removed_id, [])))
                     continue
 
                 file = change.get("file")
@@ -512,7 +503,8 @@ class GoogleDriveIntegration(SourceIntegrationInterface):
 
                 selector = _matching_root_selector(parents)
                 if selector is None:
-                    continue  # file lives outside every configured root
+                    d_files.extend(removals(refs_by_file_id.get(file_id, [])))
+                    continue
 
                 reference = f"{selector}/{file_id}" if selector else file_id
 
@@ -532,38 +524,40 @@ class GoogleDriveIntegration(SourceIntegrationInterface):
                 source_perms = self._extract_permissions(file)
                 is_native_doc = _is_google_native(change_mime)
 
-                change_kind = ChangeKind.ADDED
-                if reference in ingested_refs:
-                    stored_modified_at, stored_hash, stored_perms = ingested_refs[reference]
-                    change_kind = classify_change(
-                        stored_modified_at=stored_modified_at,
-                        stored_hash=stored_hash,
-                        stored_perms=stored_perms,
-                        content_hash=content_hash,
-                        source_modified_at=source_modified_at,
-                        source_perms=source_perms,
-                        perm_change_wins=is_native_doc,
-                    )
-                    if change_kind is None:
-                        try:
-                            fresh = service.files().get(
-                                fileId=file_id,
-                                fields="permissions(type,role,emailAddress,domain)",
-                                supportsAllDrives=True,
-                            ).execute()
-                        except Exception:
-                            logger.warning(
-                                f"[GoogleDriveIntegration] permissions refresh failed for {file_id}",
-                                exc_info=True,
-                            )
-                            continue
-                        fresh_perms = self._extract_permissions(fresh)
-                        if sorted(fresh_perms) == sorted(stored_perms or []):
-                            continue
-                        source_perms = fresh_perms
-                        change_kind = ChangeKind.PERMISSIONS_CHANGED
-                elif content_hash and content_hash in ingested_hashes:
-                    continue
+                found = identify_change(
+                    reference=reference,
+                    file_id=file_id,
+                    ingested_refs=ingested_refs,
+                    refs_by_file_id=refs_by_file_id,
+                    ingested_hashes=ingested_hashes,
+                    content_hash=content_hash,
+                    source_modified_at=source_modified_at,
+                    source_perms=source_perms,
+                    perm_change_wins=is_native_doc,
+                )
+                d_files.extend(removals(found.stale_references))
+                change_kind = found.change_kind
+                if change_kind is None:
+                    if reference not in ingested_refs:
+                        continue
+                    stored_perms = ingested_refs[reference][2]
+                    try:
+                        fresh = service.files().get(
+                            fileId=file_id,
+                            fields="permissions(type,role,emailAddress,domain)",
+                            supportsAllDrives=True,
+                        ).execute()
+                    except Exception:
+                        logger.warning(
+                            f"[GoogleDriveIntegration] permissions refresh failed for {file_id}",
+                            exc_info=True,
+                        )
+                        continue
+                    fresh_perms = self._extract_permissions(fresh)
+                    if sorted(fresh_perms) == sorted(stored_perms or []):
+                        continue
+                    source_perms = fresh_perms
+                    change_kind = ChangeKind.PERMISSIONS_CHANGED
 
                 if content_hash and change_kind != ChangeKind.PERMISSIONS_CHANGED:
                     ingested_hashes.add(content_hash)
@@ -577,6 +571,7 @@ class GoogleDriveIntegration(SourceIntegrationInterface):
                     mime_type=file.get("mimeType"),
                     source_modified_at=source_modified_at,
                     change_kind=change_kind,
+                    previous_reference=found.previous_reference,
                 ))
 
             page_token = result.get("nextPageToken")
@@ -624,7 +619,7 @@ class GoogleDriveIntegration(SourceIntegrationInterface):
         selector can be:
           - empty (uses Drive root)
           - a name path like "Engineering/Reports"
-          - a single folder name
+          - a single top-level folder name (a direct child of My Drive)
           - (legacy) a raw Drive folder ID
         """
         if not selector or not str(selector).strip():
@@ -641,17 +636,22 @@ class GoogleDriveIntegration(SourceIntegrationInterface):
             return parent_id
 
         try:
-            return await self.get_folder_id_by_name(service=service, folder_name=candidate)
+            return await self.get_folder_id_by_name(service=service, folder_name=candidate, parent_id="root")
         except FolderNameNotFound:
             pass
 
-        meta = await asyncio.to_thread(
-            lambda: service.files().get(
-                fileId=candidate,
-                fields="id,mimeType",
-                supportsAllDrives=True,
-            ).execute()
-        )
+        try:
+            meta = await asyncio.to_thread(
+                lambda: service.files().get(
+                    fileId=candidate,
+                    fields="id,mimeType",
+                    supportsAllDrives=True,
+                ).execute()
+            )
+        except HttpError as exc:
+            if exc.resp.status == 404:
+                raise ValueError(f"'{selector}' is neither a folder under My Drive root nor a folder ID") from exc
+            raise
         if meta.get("mimeType") != FOLDER_MIME:
             raise ValueError(f"'{selector}' is not a folder")
         return meta["id"]

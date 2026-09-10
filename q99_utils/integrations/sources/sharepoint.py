@@ -17,7 +17,9 @@ from q99_utils.integrations.core import (
     GRAPH_BASE_URL,
     MicrosoftGraphAuth,
     SourceIntegrationInterface,
-    classify_change,
+    identify_change,
+    references_by_file_id,
+    removals,
     register,
 )
 from q99_utils.integrations.discovery import ChangeKind, DiscoveredFile, ResourceNode
@@ -202,7 +204,6 @@ class SharepointIntegration(MicrosoftGraphAuth, SourceIntegrationInterface):
             ingested_refs = await store.indexed_files(
                 credential_id=self.credential_id,
                 source=str(SourceEnum.sharepoint),
-                reference_patterns=[self._root_like_pattern(rs) for rs in root_selectors] or None,
             )
             ingested_hashes = await store.known_content_hashes(credential_id=self.credential_id)
         else:
@@ -278,19 +279,13 @@ class SharepointIntegration(MicrosoftGraphAuth, SourceIntegrationInterface):
             if new_delta_link and self.credential_id:
                 cursors_local[delta_key] = new_delta_link
 
-            ref_by_item_id = {ref.rsplit("/", 1)[-1]: ref for ref in ingested_refs}
+            refs_by_item_id = references_by_file_id(ingested_refs)
             group_name_cache: Dict[str, List[str]] = {}
             for item in all_items:
                 item_id = item.get("id")
 
                 if item.get("deleted"):
-                    ref = ref_by_item_id.get(item_id)
-                    if ref:
-                        d_files.append(DiscoveredFile(
-                            name="",
-                            reference=ref,
-                            change_kind=ChangeKind.REMOVED,
-                        ))
+                    d_files.extend(removals(refs_by_item_id.get(item_id, [])))
                     continue
 
                 file_facet = item.get("file")
@@ -307,6 +302,7 @@ class SharepointIntegration(MicrosoftGraphAuth, SourceIntegrationInterface):
                     None,
                 )
                 if root_selectors and matched_root is None:
+                    d_files.extend(removals(refs_by_item_id.get(item_id, [])))
                     continue
                 reference = f"{matched_root}/{item_id}" if matched_root else item_id
 
@@ -339,24 +335,22 @@ class SharepointIntegration(MicrosoftGraphAuth, SourceIntegrationInterface):
                     )
                     continue
 
-                change_kind = ChangeKind.ADDED
-                if reference in ingested_refs:
-                    stored_modified_at, stored_hash, stored_perms = ingested_refs[reference]
-                    change_kind = classify_change(
-                        stored_modified_at=stored_modified_at,
-                        stored_hash=stored_hash,
-                        stored_perms=stored_perms,
-                        content_hash=content_hash,
-                        source_modified_at=source_modified_at,
-                        source_perms=permissions,
-                        perm_change_wins=True,
-                    )
-                    if change_kind is None:
-                        continue
-                elif content_hash and content_hash in ingested_hashes:
+                found = identify_change(
+                    reference=reference,
+                    file_id=item_id,
+                    ingested_refs=ingested_refs,
+                    refs_by_file_id=refs_by_item_id,
+                    ingested_hashes=ingested_hashes,
+                    content_hash=content_hash,
+                    source_modified_at=source_modified_at,
+                    source_perms=permissions,
+                    perm_change_wins=True,
+                )
+                d_files.extend(removals(found.stale_references))
+                if found.change_kind is None:
                     continue
 
-                if content_hash and change_kind != ChangeKind.PERMISSIONS_CHANGED:
+                if content_hash and found.change_kind != ChangeKind.PERMISSIONS_CHANGED:
                     ingested_hashes.add(content_hash)
 
                 d_file = DiscoveredFile(
@@ -367,7 +361,8 @@ class SharepointIntegration(MicrosoftGraphAuth, SourceIntegrationInterface):
                     file_size=item.get("size"),
                     mime_type=mimetypes.guess_type(name)[0],
                     source_modified_at=source_modified_at,
-                    change_kind=change_kind,
+                    change_kind=found.change_kind,
+                    previous_reference=found.previous_reference,
                 )
                 d_files.append(d_file)
 
