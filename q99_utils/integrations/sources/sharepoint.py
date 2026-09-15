@@ -412,6 +412,38 @@ class SharepointIntegration(MicrosoftGraphAuth, SourceIntegrationInterface):
 
         return io.BytesIO(content)
 
+    async def get_file_by_path(self, path: str) -> Optional[io.BytesIO]:
+        """One file's bytes, addressed by its path inside the site's default document library.
+
+        The sibling ``get_files_from_path`` addresses a drive *item id*. This addresses a path,
+        which is what a caller can name readably in configuration — and, unlike an item id, it
+        keeps working when the file is replaced by a fresh upload rather than edited in place.
+
+        ``path`` is relative to the library root, so a URL's ``Shared Documents/`` segment is NOT
+        part of it. Returns None when the path does not resolve, so one missing file degrades its
+        caller instead of failing everything around it.
+        """
+        credentials: OnboardingData = await self.get_credentials()
+        access_token = await self.get_access_token(credentials)
+        site_id = getattr(credentials, "site_id", None) or self.credentials["site_id"]
+
+        clean = path.strip("/")
+        url = f"{GRAPH_BASE_URL}/sites/{site_id}/drive/root:/{clean}:/content"
+        try:
+            async with httpx.AsyncClient(timeout=180) as client:
+                response = await client.get(
+                    url, headers={"Authorization": f"Bearer {access_token}"},
+                    follow_redirects=True,
+                )
+                response.raise_for_status()
+        except Exception:
+            # The URL is logged because a wrong library prefix is the usual cause and it is
+            # indistinguishable from a missing file without seeing what was asked for.
+            logger.warning(f"[SharepointIntegration] could not fetch {url}", exc_info=True)
+            return None
+
+        return io.BytesIO(response.content)
+
     # Site metadata
 
     async def get_site_id(self, data: OnboardingData):
