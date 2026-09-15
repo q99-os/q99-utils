@@ -9,14 +9,12 @@ here and each host keeps its own grant.
 
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional, Sequence
-
-import httpx
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from q99_utils.integrations.core import (
-    GRAPH_BASE_URL,
+    DELEGATED_MAIL_SCOPES,
+    DelegatedGraphClient,
     SourceIntegrationInterface,
-    refresh_delegated_token,
     register,
 )
 from q99_utils.enums import SourceEnum
@@ -91,88 +89,16 @@ def build_message(
 # Delegated client
 
 
-class DelegatedTokenExpired(RuntimeError):
-    """Graph answered 401; the caller should refresh and retry once."""
+class GraphMailClient(DelegatedGraphClient):
+    """The delegated Graph client, asking the refresh grant for the mail scopes.
 
-
-class GraphMailClient:
-    """POSTs to Graph on behalf of a user, refreshing the token once on 401.
-
-    ``on_refresh`` runs after each refresh: persisting is the host's job, and it
-    cannot know a rotated token arrived unless it is told.
+    Everything but :meth:`send_mail` is the shared client: the transport, the
+    refresh-once-on-401 and the write-back of a rotated token are the same for any
+    Microsoft source, so they live in ``core``.
     """
 
-    def __init__(
-        self,
-        credentials: OnboardingData,
-        timeout: int = DEFAULT_TIMEOUT,
-        on_refresh: Optional[Callable[[OnboardingData], Awaitable[None]]] = None,
-    ) -> None:
-        if not credentials or not credentials.api_key:
-            raise ValueError("Outlook credentials are missing an access token")
-        self.credentials = credentials
-        self._token = credentials.api_key
-        self._timeout = timeout
-        self._on_refresh = on_refresh
-
-    @property
-    def access_token(self) -> str:
-        return self._token
-
-    async def post(
-        self,
-        endpoint: str,
-        body: Optional[Dict[str, Any]] = None,
-        params: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        try:
-            return await self._post_once(endpoint, body, params)
-        except DelegatedTokenExpired:
-            await self.refresh()
-            return await self._post_once(endpoint, body, params)
-
-    async def _post_once(
-        self,
-        endpoint: str,
-        body: Optional[Dict[str, Any]],
-        params: Optional[Dict[str, Any]],
-    ) -> Dict[str, Any]:
-        headers = {
-            "Authorization": f"Bearer {self._token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            response = await client.post(
-                f"{GRAPH_BASE_URL}{endpoint}",
-                headers=headers,
-                json=body or {},
-                params=params or {},
-            )
-
-        if response.status_code == 401:
-            raise DelegatedTokenExpired()
-        if response.status_code == 202 or not response.content:
-            return {}
-        response.raise_for_status()
-        return response.json()
-
-    async def refresh(self) -> None:
-        creds = self.credentials
-        payload = await refresh_delegated_token(
-            tenant_id=creds.tenant_id,
-            client_id=creds.client_id,
-            client_secret=creds.client_secret,
-            refresh_token=creds.refresh_token,
-            source=creds.source,
-        )
-        self._token = payload["access_token"]
-        creds.api_key = payload["access_token"]
-        if payload.get("refresh_token"):
-            creds.refresh_token = payload["refresh_token"]
-
-        if self._on_refresh:
-            await self._on_refresh(creds)
+    refresh_scopes = DELEGATED_MAIL_SCOPES
+    timeout_seconds = DEFAULT_TIMEOUT
 
     async def send_mail(
         self,
@@ -217,7 +143,6 @@ __all__ = [
     "SEND_MAIL_AS_MAILBOX",
     "SEND_MAIL_AS_USER",
     "TEXT_CONTENT",
-    "DelegatedTokenExpired",
     "GraphMailClient",
     "OutlookIntegration",
     "build_message",

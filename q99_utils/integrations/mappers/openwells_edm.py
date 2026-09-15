@@ -562,6 +562,28 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
         """
         return await self._driver.query(sql=self._compile(sql), params=(well_id,))
 
+    async def fetch_plan_activity_vocabulary(self, job_type: str) -> list[dict]:
+        """Every distinct planned-operation memo across the tenant's plans of one job
+        type, with how many plans use it — the client's own activity vocabulary,
+        most reused first."""
+        sql = """
+            SELECT
+                o.activity_memo AS memo,
+                COUNT(DISTINCT o.well_plan_id) AS plans
+            FROM DM_WELL_PLAN_OP o
+            INNER JOIN DM_WELL_PLAN p
+                ON p.well_id = o.well_id
+                AND p.wellbore_id = o.wellbore_id
+                AND p.well_plan_id = o.well_plan_id
+            WHERE
+                p.job_type = ?
+                AND o.activity_memo IS NOT NULL
+                AND DATALENGTH(o.activity_memo) > 0
+            GROUP BY o.activity_memo
+            ORDER BY plans DESC
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(job_type,))
+
     async def fetch_wells(self) -> list[dict]:
         """Every named well in the tenant. Wells with neither name are dropped:
         there is nothing to show or search for."""

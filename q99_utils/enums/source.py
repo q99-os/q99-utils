@@ -22,6 +22,7 @@ class SourceEnum(StrEnum):
     openwells = "openwells"
     gmail = "gmail"
     outlook = "outlook"
+    teams = "teams"
     azure_ad = "azure_ad"
     bigquery = "bigquery"
     alamo = "alamo"

@@ -15,8 +15,8 @@ APP_SOURCE_BY_SOURCE = {
     SourceEnum.googledrive: SourceEnum.google_oauth_app,
     SourceEnum.gmail: SourceEnum.google_oauth_app,
     SourceEnum.outlook: SourceEnum.microsoft_oauth_app,
+    SourceEnum.teams: SourceEnum.microsoft_oauth_app,
     SourceEnum.sharepoint: SourceEnum.microsoft_oauth_app,
-    SourceEnum.azure_ad: SourceEnum.microsoft_oauth_app,
 }
 
 

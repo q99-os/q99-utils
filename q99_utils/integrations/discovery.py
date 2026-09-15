@@ -11,6 +11,7 @@ class ChangeKind(StrEnum):
     UPDATED = "updated"
     PERMISSIONS_CHANGED = "permissions_changed"
     REMOVED = "removed"
+    MOVED = "moved"
 
 
 class DiscoveredFile(BaseModel):
@@ -23,6 +24,7 @@ class DiscoveredFile(BaseModel):
     mime_type: Optional[str] = None
     source_modified_at: Optional[int] = None
     change_kind: ChangeKind = ChangeKind.ADDED
+    previous_reference: Optional[str] = None
 
 
 class ResourceNode(BaseModel):

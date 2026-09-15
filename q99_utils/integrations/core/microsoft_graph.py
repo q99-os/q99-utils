@@ -7,7 +7,7 @@ the flow is written once instead of once per integration.
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Dict, Optional
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, Optional
 
 import httpx
 
@@ -29,6 +29,12 @@ APP_REJECTED_MESSAGE = (
 TOKEN_URL_TEMPLATE = "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
 
 DELEGATED_MAIL_SCOPES = "openid profile email offline_access User.Read Mail.Send"
+
+DELEGATED_TEAMS_SCOPES = (
+    "openid profile email offline_access User.Read "
+    "Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Send ChannelMessage.Read.All "
+    "Chat.Create ChatMessage.Send Chat.Read User.ReadBasic.All"
+)
 
 DEFAULT_TIMEOUT = 120
 
@@ -189,6 +195,147 @@ async def graph_paginate(
         next_url = page.get("@odata.nextLink")
 
 
+# Delegated client
+
+
+class DelegatedTokenExpired(RuntimeError):
+    """Graph answered 401; the caller should refresh and retry once."""
+
+
+class DelegatedGraphClient:
+    """Calls Graph as the signed-in user, refreshing the token once on a 401.
+
+    ``refresh_scopes`` has to be what the consent actually granted. Azure AD rejects
+    a refresh that asks for a scope the person never agreed to, and it rejects it as
+    ``invalid_grant`` — the same answer a revoked account gives, which hosts respond
+    to by turning the integration off. So each subclass declares its own set rather
+    than inheriting whichever one happened to be the default.
+
+    ``on_refresh`` runs after each refresh: persisting is the host's job, and it
+    cannot know a rotated token arrived unless it is told.
+    """
+
+    refresh_scopes: str = ""
+    timeout_seconds: int = DEFAULT_TIMEOUT
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Refuse a subclass that did not say what to ask the refresh grant for.
+
+        Checked while the module loads, not the first time a token expires: an
+        integration that silently turns itself off is much harder to trace back.
+        """
+        super().__init_subclass__(**kwargs)
+        if not cls.refresh_scopes:
+            raise TypeError(f"{cls.__name__} must declare refresh_scopes")
+
+    def __init__(
+        self,
+        credentials: OnboardingData,
+        timeout: Optional[int] = None,
+        on_refresh: Optional[Callable[[OnboardingData], Awaitable[None]]] = None,
+    ) -> None:
+        if not credentials or not credentials.api_key:
+            raise ValueError("Microsoft credentials are missing an access token")
+        self.credentials = credentials
+        self._token = credentials.api_key
+        self._timeout = self.timeout_seconds if timeout is None else timeout
+        self._on_refresh = on_refresh
+
+    @property
+    def access_token(self) -> str:
+        return self._token
+
+    async def get(
+        self,
+        endpoint: str,
+        params: Optional[Dict[str, Any]] = None,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        try:
+            return await self._get_once(endpoint, params, headers)
+        except DelegatedTokenExpired:
+            await self.refresh()
+            return await self._get_once(endpoint, params, headers)
+
+    async def post(
+        self,
+        endpoint: str,
+        body: Optional[Dict[str, Any]] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        try:
+            return await self._post_once(endpoint, body, params)
+        except DelegatedTokenExpired:
+            await self.refresh()
+            return await self._post_once(endpoint, body, params)
+
+    async def _get_once(
+        self,
+        endpoint: str,
+        params: Optional[Dict[str, Any]],
+        headers: Optional[Dict[str, str]],
+    ) -> Dict[str, Any]:
+        request_headers = {
+            "Authorization": f"Bearer {self._token}",
+            "Accept": "application/json",
+        }
+        request_headers.update(headers or {})
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            response = await client.get(
+                f"{GRAPH_BASE_URL}{endpoint}", headers=request_headers, params=params or {}
+            )
+        return self._read(response, "GET", endpoint)
+
+    async def _post_once(
+        self,
+        endpoint: str,
+        body: Optional[Dict[str, Any]],
+        params: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        headers = {
+            "Authorization": f"Bearer {self._token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            response = await client.post(
+                f"{GRAPH_BASE_URL}{endpoint}",
+                headers=headers,
+                json=body or {},
+                params=params or {},
+            )
+        return self._read(response, "POST", endpoint)
+
+    def _read(self, response: httpx.Response, method: str, endpoint: str) -> Dict[str, Any]:
+        """The one place that decides what a status code means for this client."""
+        if response.status_code == 401:
+            raise DelegatedTokenExpired()
+        if response.status_code == 404:
+            raise ResourceNotFound(f"Microsoft Graph {method} found no resource at {endpoint}")
+        if response.status_code == 202 or not response.content:
+            return {}
+        response.raise_for_status()
+        return response.json()
+
+    async def refresh(self) -> None:
+        creds = self.credentials
+        payload = await refresh_delegated_token(
+            tenant_id=creds.tenant_id,
+            client_id=creds.client_id,
+            client_secret=creds.client_secret,
+            refresh_token=creds.refresh_token,
+            scopes=self.refresh_scopes,
+            source=creds.source,
+        )
+        self._token = payload["access_token"]
+        creds.api_key = payload["access_token"]
+        if payload.get("refresh_token"):
+            creds.refresh_token = payload["refresh_token"]
+
+        if self._on_refresh:
+            await self._on_refresh(creds)
+
+
 class MicrosoftGraphAuth:
     """Resolves credentials, then delegates to :func:`acquire_graph_token`.
 
@@ -211,6 +358,9 @@ class MicrosoftGraphAuth:
 __all__ = [
     "APP_REJECTED_MESSAGE",
     "DELEGATED_MAIL_SCOPES",
+    "DELEGATED_TEAMS_SCOPES",
+    "DelegatedGraphClient",
+    "DelegatedTokenExpired",
     "GRAPH_BASE_URL",
     "GRAPH_SCOPE",
     "MicrosoftGraphAuth",

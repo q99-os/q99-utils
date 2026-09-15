@@ -1,6 +1,6 @@
 """The machinery every integration is built on. Concrete ones live in sources/."""
 
-from q99_utils.integrations.core.change_detection import classify_change
+from q99_utils.integrations.core.change_detection import classify_change, identify_change, references_by_file_id, removals
 from q99_utils.integrations.core.company_apps import APP_SOURCE_BY_SOURCE, app_source_for
 from q99_utils.integrations.core.context import IntegrationConfig, IntegrationContext
 from q99_utils.integrations.core.google_oauth import translate_refresh_error
@@ -13,6 +13,9 @@ from q99_utils.integrations.core.exceptions import (
 )
 from q99_utils.integrations.core.microsoft_graph import (
     DELEGATED_MAIL_SCOPES,
+    DELEGATED_TEAMS_SCOPES,
+    DelegatedGraphClient,
+    DelegatedTokenExpired,
     GRAPH_BASE_URL,
     GRAPH_SCOPE,
     MicrosoftGraphAuth,
@@ -40,6 +43,9 @@ __all__ = [
     "translate_refresh_error",
     "CredentialValidationError",
     "DELEGATED_MAIL_SCOPES",
+    "DELEGATED_TEAMS_SCOPES",
+    "DelegatedGraphClient",
+    "DelegatedTokenExpired",
     "GRAPH_BASE_URL",
     "GRAPH_SCOPE",
     "IntegrationConfig",
@@ -51,6 +57,9 @@ __all__ = [
     "SqlIntegrationBase",
     "acquire_graph_token",
     "classify_change",
+    "identify_change",
+    "references_by_file_id",
+    "removals",
     "graph_paginate",
     "graph_request",
     "request_graph_token",

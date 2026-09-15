@@ -17,6 +17,7 @@ from q99_utils.integrations.sources.outlook import OutlookIntegration
 from q99_utils.integrations.sources.postgres import PostgresIntegration
 from q99_utils.integrations.sources.sharepoint import SharepointIntegration
 from q99_utils.integrations.sources.slack import SlackIntegration
+from q99_utils.integrations.sources.teams import TeamsIntegration
 
 # Narrow on purpose: only a missing SDK is an absent extra, anything else is a bug.
 try:
@@ -46,6 +47,7 @@ __all__ = [
     "PostgresIntegration",
     "SharepointIntegration",
     "SlackIntegration",
+    "TeamsIntegration",
 ]
 
 if GoogleDriveIntegration is None:
