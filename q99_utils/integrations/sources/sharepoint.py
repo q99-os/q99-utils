@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import io
 import mimetypes
 import os
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import unquote
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 import httpx
 
@@ -407,23 +408,78 @@ class SharepointIntegration(MicrosoftGraphAuth, SourceIntegrationInterface):
 
         return io.BytesIO(content)
 
+    @staticmethod
+    def _host(credentials: OnboardingData, fallback: Dict) -> Optional[str]:
+        """The tenant's SharePoint hostname, for turning a server-relative path into a URL.
+
+        `site_id` is "hostname,site-guid,web-guid", so it carries the host even when tenant_name
+        is unset — which it is for a credential onboarded before that field existed.
+        """
+        tenant = getattr(credentials, "tenant_name", None) or fallback.get("tenant_name")
+        if tenant:
+            return f"{tenant}.sharepoint.com"
+        site_id = getattr(credentials, "site_id", None) or fallback.get("site_id") or ""
+        head = site_id.split(",")[0]
+        return head if "." in head else None
+
+    @staticmethod
+    def _share_token(url: str) -> str:
+        """Graph's sharing token for a file URL: ``u!`` + unpadded base64url of the URL.
+
+        The path is percent-encoded first because the token is the base64 of the URL *as written* —
+        ".../Gas Lift/x.xlsx" and ".../Gas%20Lift/x.xlsx" would otherwise produce different tokens,
+        and which one a caller has depends on how they copied the link. Unquoting before quoting
+        normalises both spellings to the same canonical form.
+        """
+        parts = urlsplit(url)
+        canonical = urlunsplit((
+            parts.scheme, parts.netloc, quote(unquote(parts.path), safe="/"),
+            parts.query, parts.fragment,
+        ))
+        encoded = base64.urlsafe_b64encode(canonical.encode()).rstrip(b"=").decode("ascii")
+        return f"u!{encoded}"
+
     async def get_file_by_path(self, path: str) -> Optional[io.BytesIO]:
-        """One file's bytes, addressed by its path inside the site's default document library.
+        """One file's bytes, addressed either by library path or by full URL.
 
         The sibling ``get_files_from_path`` addresses a drive *item id*. This addresses a path,
         which is what a caller can name readably in configuration — and, unlike an item id, it
         keeps working when the file is replaced by a fresh upload rather than edited in place.
 
-        ``path`` is relative to the library root, so a URL's ``Shared Documents/`` segment is NOT
-        part of it. Returns None when the path does not resolve, so one missing file degrades its
-        caller instead of failing everything around it.
+        A plain ``path`` is relative to the library root, so a URL's ``Shared Documents/`` segment
+        is NOT part of it — and it can only reach the site's DEFAULT document library, because
+        Graph's ``/drive`` means exactly that.
+
+        A full ``https://`` URL, or a server-relative one starting ``/sites/``, goes through
+        ``/shares`` instead, which resolves the file whatever library or site holds it. That is the
+        only way to reach a non-default library, and it needs no knowledge of which library is the
+        default. The ``/sites/`` form is the same thing with the tenant host filled in from the
+        credential, so a definition need not repeat it — the cost is that a library-relative path
+        whose first segment is literally ``sites`` cannot be expressed. The token is still this
+        credential's application token, so the app must have been granted access to that site.
+
+        Returns None when the path does not resolve, so one missing file degrades its caller
+        instead of failing everything around it.
         """
         credentials: OnboardingData = await self.get_credentials()
         access_token = await self.get_access_token(credentials)
-        site_id = getattr(credentials, "site_id", None) or self.credentials["site_id"]
 
-        clean = path.strip("/")
-        url = f"{GRAPH_BASE_URL}/sites/{site_id}/drive/root:/{clean}:/content"
+        target = path
+        if path.startswith("/sites/"):
+            host = self._host(credentials, self.credentials or {})
+            if not host:
+                logger.warning(
+                    f"[SharepointIntegration] cannot resolve {path!r}: the credential carries "
+                    "neither tenant_name nor a host-bearing site_id"
+                )
+                return None
+            target = f"https://{host}{path}"
+
+        if target.startswith("https://"):
+            url = f"{GRAPH_BASE_URL}/shares/{self._share_token(target)}/driveItem/content"
+        else:
+            site_id = getattr(credentials, "site_id", None) or self.credentials["site_id"]
+            url = f"{GRAPH_BASE_URL}/sites/{site_id}/drive/root:/{path.strip('/')}:/content"
         try:
             async with httpx.AsyncClient(timeout=180) as client:
                 response = await client.get(
@@ -432,9 +488,12 @@ class SharepointIntegration(MicrosoftGraphAuth, SourceIntegrationInterface):
                 )
                 response.raise_for_status()
         except Exception:
-            # The URL is logged because a wrong library prefix is the usual cause and it is
-            # indistinguishable from a missing file without seeing what was asked for.
-            logger.warning(f"[SharepointIntegration] could not fetch {url}", exc_info=True)
+            # Both the request and what was asked for are logged: a path that named the wrong
+            # library, a URL the app has no grant for, and a genuinely missing file all arrive
+            # here, and they are indistinguishable without seeing both.
+            logger.warning(
+                f"[SharepointIntegration] could not fetch {path!r} via {url}", exc_info=True,
+            )
             return None
 
         return io.BytesIO(response.content)
