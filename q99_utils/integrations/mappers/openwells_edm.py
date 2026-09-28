@@ -29,9 +29,14 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
         return sqlglot.transpile(sql, read="tsql", write=self._dialect)[0]
 
     async def fetch_general(self, well_id: str) -> list[dict]:
+        """The well's header row; ``name`` follows the same rule as :meth:`fetch_wells`."""
         sql = """
             SELECT
                 well_id, well_legal_name, well_common_name,
+                COALESCE(
+                    NULLIF(LTRIM(RTRIM(well_common_name)), ''),
+                    NULLIF(LTRIM(RTRIM(well_legal_name)), '')
+                ) AS name,
                 well_uwi, well_uwi_type, api_no, site_id, completion_well_id,
                 field_name, field_number, well_operator, well_operator_original, target_formation,
                 loc_country, loc_state, loc_county,
@@ -244,6 +249,42 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
         """
         return await self._driver.query(sql=self._compile(sql), params=(well_id,))
 
+    async def fetch_casing_strings(self, well_id: str) -> list[dict]:
+        """Casing strings as run, from the assembly model rather than the tally.
+
+        A string's joints are its ``CAS`` components: one row per component,
+        each string's shallowest first, so a caller reads the sections of a
+        combination string (two weights or grades) in running order. The
+        string's shoe is its deepest ``md_base``. Only ``ACTUAL`` strings: the
+        model also holds the designs (plan, prototype). Depths in feet, sizes
+        in inches, weights in lb/ft.
+        """
+        sql = """
+            SELECT
+                ca.assembly_id,
+                ca.assembly_name,
+                ca.date_report,
+                ca.hole_size,
+                cac.od_body,
+                cac.approximate_weight,
+                cac.grade,
+                cac.connection_name,
+                cac.md_top,
+                cac.md_base
+            FROM CD_ASSEMBLY ca
+            INNER JOIN CD_ASSEMBLY_COMP cac
+                ON cac.well_id = ca.well_id
+                AND cac.wellbore_id = ca.wellbore_id
+                AND cac.assembly_id = ca.assembly_id
+            WHERE
+                ca.well_id = ?
+                AND ca.string_type = 'Casing'
+                AND ca.phase = 'ACTUAL'
+                AND cac.sect_type_code = 'CAS'
+            ORDER BY ca.date_report, ca.assembly_id, cac.md_top
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
     async def fetch_pipe_tally(self, well_id: str) -> list[dict]:
         """Joint-by-joint tally of every pipe string run in the well.
 
@@ -332,6 +373,8 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
         return await self._driver.query(sql=self._compile(sql), params=(well_id,))
 
     async def fetch_bha_components(self, well_id: str) -> list[dict]:
+        """The components of every assembly a BHA run used; designs, casing and tubing
+        strings share CD_ASSEMBLY but no BHA run points at them."""
         sql = """
             SELECT
                 ca.assembly_name,
@@ -352,7 +395,7 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 cac.sequence_no
             FROM CD_ASSEMBLY_COMP cac
             JOIN CD_ASSEMBLY ca ON ca.assembly_id = cac.assembly_id
-            WHERE ca.well_id = ?
+            WHERE ca.assembly_id IN (SELECT assembly_id FROM DM_BHA_RUN WHERE well_id = ?)
             ORDER BY ca.assembly_name, cac.sequence_no
         """
         return await self._driver.query(sql=self._compile(sql), params=(well_id,))
@@ -373,6 +416,7 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 percent_water,
                 percent_oil,
                 api_water_loss,
+                hthp_water_loss,
                 filter_cake,
                 mbt,
                 conc_cl,
@@ -562,35 +606,17 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
         """
         return await self._driver.query(sql=self._compile(sql), params=(well_id,))
 
-    async def fetch_plan_activity_vocabulary(self, job_type: str) -> list[dict]:
-        """Every distinct planned-operation memo across the tenant's plans of one job
-        type, with how many plans use it — the client's own activity vocabulary,
-        most reused first."""
-        sql = """
-            SELECT
-                o.activity_memo AS memo,
-                COUNT(DISTINCT o.well_plan_id) AS plans
-            FROM DM_WELL_PLAN_OP o
-            INNER JOIN DM_WELL_PLAN p
-                ON p.well_id = o.well_id
-                AND p.wellbore_id = o.wellbore_id
-                AND p.well_plan_id = o.well_plan_id
-            WHERE
-                p.job_type = ?
-                AND o.activity_memo IS NOT NULL
-                AND DATALENGTH(o.activity_memo) > 0
-            GROUP BY o.activity_memo
-            ORDER BY plans DESC
-        """
-        return await self._driver.query(sql=self._compile(sql), params=(job_type,))
-
     async def fetch_wells(self) -> list[dict]:
-        """Every named well in the tenant. Wells with neither name are dropped:
-        there is nothing to show or search for."""
+        """Every named well in the tenant. The name is trimmed, blank counts as
+        missing, and the common name wins over the legal one; wells with
+        neither are dropped: there is nothing to show or search for."""
         sql = """
             SELECT
                 well_id,
-                COALESCE(well_common_name, well_legal_name) AS name,
+                COALESCE(
+                    NULLIF(LTRIM(RTRIM(well_common_name)), ''),
+                    NULLIF(LTRIM(RTRIM(well_legal_name)), '')
+                ) AS name,
                 field_name,
                 well_operator,
                 loc_country,
@@ -600,7 +626,10 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 spud_date,
                 water_depth
             FROM CD_WELL_SOURCE
-            WHERE COALESCE(well_common_name, well_legal_name) IS NOT NULL
+            WHERE COALESCE(
+                NULLIF(LTRIM(RTRIM(well_common_name)), ''),
+                NULLIF(LTRIM(RTRIM(well_legal_name)), '')
+            ) IS NOT NULL
         """
         return await self._driver.query(sql=self._compile(sql), params=())
 
