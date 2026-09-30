@@ -338,6 +338,7 @@ class UserManagerSDK:
                             parent_interaction_id:Optional[str] = None,
                             title:Optional[str] = None,
                             feature:Optional[str] = None,
+                            graph_id:Optional[str] = None,
                             ):
         chat_url = f"{USER_MANAGER_URL}/v1/history/conversation/"
 
@@ -351,6 +352,8 @@ class UserManagerSDK:
             payload["title"] = title
         if feature is not None:
             payload["feature"] = feature # only read by UM when creating a new conversation
+        if graph_id is not None:
+            payload["graph_id"] = graph_id
         
         return await self._request(method="POST", url=chat_url, json=payload)
         
