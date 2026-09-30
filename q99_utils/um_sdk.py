@@ -5,7 +5,7 @@ import httpx
 from q99_utils.environment import USER_MANAGER_URL
 from q99_utils.models import (
     OnboardingData, UMMessage, UMTrace, UMTraceGroup, UMExport, UMCrontab, UMTaskSchedule,
-    UMReport, UMReportSection,
+    UMReport, UMReportSection, GraphAccessDecision, GraphOperation, UMKnowledgeGraph,
 )
 
 class UserManagerSDK:
@@ -59,6 +59,40 @@ class UserManagerSDK:
             return cleaned_config_data
         
         return response.json()
+
+    async def list_graphs(
+        self,
+        operation: GraphOperation | str = GraphOperation.READ,
+    ) -> list[UMKnowledgeGraph]:
+        """List active graphs authorized for the current principal and operation."""
+
+        requested_operation = GraphOperation(operation)
+        url = f"{USER_MANAGER_URL}/v1/graphs/"
+        result = await self._request(
+            method="GET",
+            url=url,
+            params={"operation": requested_operation.value},
+        )
+        rows = result.get("results", []) if isinstance(result, dict) else result
+        if not isinstance(rows, list):
+            raise ValueError("User Manager returned an invalid graph catalog")
+        return [UMKnowledgeGraph.model_validate(row) for row in rows]
+
+    async def authorize_graph(
+        self,
+        graph_id: str,
+        operation: GraphOperation | str,
+    ) -> GraphAccessDecision:
+        """Ask User Manager for a fresh, operation-specific graph decision."""
+
+        requested_operation = GraphOperation(operation)
+        url = f"{USER_MANAGER_URL}/v1/graphs/{graph_id}/authorize/"
+        result = await self._request(
+            method="POST",
+            url=url,
+            json={"operation": requested_operation.value},
+        )
+        return GraphAccessDecision.model_validate(result)
 
     async def get_credential(
         self,

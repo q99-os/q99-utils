@@ -3,6 +3,7 @@
 from q99_utils.enums import DatabaseBackendEnum, IntegrationTypeEnum, SourceEnum
 from q99_utils.models.chat import UMMessage
 from q99_utils.models.exports import UMExport
+from q99_utils.models.graphs import GraphAccessDecision, GraphOperation, UMKnowledgeGraph
 from q99_utils.models.onboarding import OnboardingData
 from q99_utils.models.permissions import PermissionTokens
 from q99_utils.models.reports import UMReport, UMReportSection
@@ -26,6 +27,9 @@ __all__ = [
     "UMTrace",
     "UMTraceGroup",
     "UMExport",
+    "GraphAccessDecision",
+    "GraphOperation",
+    "UMKnowledgeGraph",
     "UMReport",
     "UMReportSection",
     "UMCrontab",
