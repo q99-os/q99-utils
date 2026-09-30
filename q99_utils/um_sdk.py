@@ -5,7 +5,8 @@ import httpx
 from q99_utils.environment import USER_MANAGER_URL
 from q99_utils.models import (
     OnboardingData, UMMessage, UMTrace, UMTraceGroup, UMExport, UMCrontab, UMTaskSchedule,
-    UMReport, UMReportSection, GraphAccessDecision, GraphOperation, UMKnowledgeGraph,
+    UMReport, UMReportSection, GraphAccessDecision, GraphAuthorityDecision,
+    GraphAuthorityReference, GraphOperation, UMKnowledgeGraph,
 )
 
 class UserManagerSDK:
@@ -93,6 +94,48 @@ class UserManagerSDK:
             json={"operation": requested_operation.value},
         )
         return GraphAccessDecision.model_validate(result)
+
+    async def create_graph_authority_reference(
+        self,
+        graph_id: str,
+        *,
+        actor_operation: GraphOperation | str,
+        operation: GraphOperation | str,
+        executor_service: str,
+        ttl_seconds: int = 3600,
+    ) -> GraphAuthorityReference:
+        """Delegate current graph authority to a named asynchronous executor."""
+
+        actor_operation = GraphOperation(actor_operation)
+        operation = GraphOperation(operation)
+        result = await self._request(
+            method="POST",
+            url=f"{USER_MANAGER_URL}/v1/graphs/{graph_id}/authority-references/",
+            json={
+                "actor_operation": actor_operation.value,
+                "operation": operation.value,
+                "executor_service": executor_service,
+                "ttl_seconds": ttl_seconds,
+            },
+        )
+        return GraphAuthorityReference.model_validate(result)
+
+    async def resolve_graph_authority_reference(
+        self, reference_id: str
+    ) -> GraphAuthorityDecision:
+        """Resolve and revalidate a reference as its bound service executor."""
+
+        result = await self._request(
+            method="POST",
+            url=f"{USER_MANAGER_URL}/v1/graph-authority/{reference_id}/resolve/",
+        )
+        return GraphAuthorityDecision.model_validate(result)
+
+    async def revoke_graph_authority_reference(self, reference_id: str) -> None:
+        await self._request(
+            method="DELETE",
+            url=f"{USER_MANAGER_URL}/v1/graph-authority/{reference_id}/",
+        )
 
     async def get_credential(
         self,
