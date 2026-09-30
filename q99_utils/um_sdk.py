@@ -1,5 +1,6 @@
 from fastapi import HTTPException, status
 from typing import List, Literal, Optional
+from urllib.parse import urljoin, urlsplit
 import httpx
 
 from q99_utils.environment import USER_MANAGER_URL
@@ -64,20 +65,73 @@ class UserManagerSDK:
     async def list_graphs(
         self,
         operation: GraphOperation | str = GraphOperation.READ,
+        *,
+        max_graphs: int = 10_000,
     ) -> list[UMKnowledgeGraph]:
-        """List active graphs authorized for the current principal and operation."""
+        """List the bounded, complete authorized graph catalog.
+
+        Pagination links are accepted only from the configured User Manager
+        origin.  A changing or unexpectedly large catalog fails explicitly
+        instead of returning a silent prefix that could starve scheduled work.
+        """
 
         requested_operation = GraphOperation(operation)
-        url = f"{USER_MANAGER_URL}/v1/graphs/"
-        result = await self._request(
-            method="GET",
-            url=url,
-            params={"operation": requested_operation.value},
-        )
-        rows = result.get("results", []) if isinstance(result, dict) else result
-        if not isinstance(rows, list):
-            raise ValueError("User Manager returned an invalid graph catalog")
-        return [UMKnowledgeGraph.model_validate(row) for row in rows]
+        if not isinstance(max_graphs, int) or isinstance(max_graphs, bool):
+            raise ValueError("max_graphs must be an integer")
+        if not 1 <= max_graphs <= 100_000:
+            raise ValueError("max_graphs must be between 1 and 100000")
+
+        base_url = f"{USER_MANAGER_URL}/v1/graphs/"
+        base_origin = urlsplit(base_url)[:2]
+        url: str | None = base_url
+        params: dict[str, str] | None = {
+            "operation": requested_operation.value
+        }
+        visited: set[str] = set()
+        graphs: list[UMKnowledgeGraph] = []
+        page_count = 0
+
+        while url is not None:
+            if url in visited:
+                raise ValueError("User Manager graph catalog pagination cycled")
+            if page_count >= 1_000:
+                raise ValueError("User Manager graph catalog exceeded page limit")
+            visited.add(url)
+            page_count += 1
+
+            result = await self._request(
+                method="GET",
+                url=url,
+                params=params,
+            )
+            params = None
+            if isinstance(result, dict):
+                rows = result.get("results")
+                next_page = result.get("next")
+            else:
+                rows = result
+                next_page = None
+            if not isinstance(rows, list):
+                raise ValueError("User Manager returned an invalid graph catalog")
+            if len(graphs) + len(rows) > max_graphs:
+                raise ValueError("User Manager graph catalog exceeded graph limit")
+            graphs.extend(UMKnowledgeGraph.model_validate(row) for row in rows)
+
+            if next_page is None:
+                url = None
+            elif not isinstance(next_page, str) or not next_page.strip():
+                raise ValueError(
+                    "User Manager returned an invalid graph catalog next link"
+                )
+            else:
+                candidate = urljoin(url, next_page)
+                if urlsplit(candidate)[:2] != base_origin:
+                    raise ValueError(
+                        "User Manager graph catalog next link changed origin"
+                    )
+                url = candidate
+
+        return graphs
 
     async def authorize_graph(
         self,

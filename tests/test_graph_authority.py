@@ -55,9 +55,24 @@ async def test_authorize_graph_rejects_unknown_operation():
 
 async def test_list_graphs_accepts_paginated_catalog(monkeypatch):
     sdk = UserManagerSDK(api_key="key")
+    second_graph_id = "22222222-2222-4222-8222-222222222222"
+    calls = []
 
-    async def request(**_kwargs):
+    async def request(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 2:
+            return {
+                "next": None,
+                "results": [{
+                    "id": second_graph_id,
+                    "name": "Secondary",
+                    "description": "",
+                    "is_active": True,
+                    "policy_version": 2,
+                }],
+            }
         return {
+            "next": "/v1/graphs/?operation=read&page=2",
             "results": [{
                 "id": GRAPH_ID,
                 "name": "Primary",
@@ -69,7 +84,64 @@ async def test_list_graphs_accepts_paginated_catalog(monkeypatch):
 
     monkeypatch.setattr(sdk, "_request", request)
     graphs = await sdk.list_graphs("read")
-    assert [str(graph.id) for graph in graphs] == [GRAPH_ID]
+    assert [str(graph.id) for graph in graphs] == [GRAPH_ID, second_graph_id]
+    assert calls[0]["params"] == {"operation": "read"}
+    assert calls[1]["params"] is None
+    await sdk._client.aclose()
+
+
+async def test_list_graphs_rejects_cycles_and_silent_truncation(monkeypatch):
+    sdk = UserManagerSDK(api_key="key")
+
+    async def cycling_request(**_kwargs):
+        return {
+            "next": "/v1/graphs/",
+            "results": [],
+        }
+
+    monkeypatch.setattr(sdk, "_request", cycling_request)
+    with pytest.raises(ValueError, match="pagination cycled"):
+        await sdk.list_graphs("materialize")
+
+    async def oversized_request(**_kwargs):
+        return {
+            "next": None,
+            "results": [
+                {
+                    "id": GRAPH_ID,
+                    "name": "Primary",
+                    "description": "",
+                    "is_active": True,
+                    "policy_version": 1,
+                },
+                {
+                    "id": "22222222-2222-4222-8222-222222222222",
+                    "name": "Secondary",
+                    "description": "",
+                    "is_active": True,
+                    "policy_version": 1,
+                },
+            ],
+        }
+
+    monkeypatch.setattr(sdk, "_request", oversized_request)
+    with pytest.raises(ValueError, match="exceeded graph limit"):
+        await sdk.list_graphs("read", max_graphs=1)
+    await sdk._client.aclose()
+
+
+async def test_list_graphs_rejects_cross_origin_next_link(monkeypatch):
+    sdk = UserManagerSDK(api_key="key")
+
+    async def request(**_kwargs):
+        return {
+            "next": "https://attacker.invalid/v1/graphs/?page=2",
+            "results": [],
+        }
+
+    monkeypatch.setattr(sdk, "_request", request)
+    with pytest.raises(ValueError, match="changed origin"):
+        await sdk.list_graphs("read")
     await sdk._client.aclose()
 
 
