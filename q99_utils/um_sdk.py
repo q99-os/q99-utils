@@ -185,6 +185,31 @@ class UserManagerSDK:
         )
         return GraphAuthorityDecision.model_validate(result)
 
+    async def delegate_graph_authority_reference(
+        self,
+        reference_id: str,
+        *,
+        operation: GraphOperation | str,
+        executor_service: str,
+        ttl_seconds: int = 3600,
+    ) -> GraphAuthorityReference:
+        """Exchange a current opaque authority as its bound executor."""
+
+        operation = GraphOperation(operation)
+        result = await self._request(
+            method="POST",
+            url=(
+                f"{USER_MANAGER_URL}/v1/graph-authority/"
+                f"{reference_id}/delegate/"
+            ),
+            json={
+                "operation": operation.value,
+                "executor_service": executor_service,
+                "ttl_seconds": ttl_seconds,
+            },
+        )
+        return GraphAuthorityReference.model_validate(result)
+
     async def revoke_graph_authority_reference(self, reference_id: str) -> None:
         await self._request(
             method="DELETE",

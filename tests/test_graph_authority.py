@@ -180,11 +180,24 @@ async def test_authority_reference_lifecycle_uses_opaque_handle(monkeypatch):
         ttl_seconds=600,
     )
     decision = await sdk.resolve_graph_authority_reference(str(reference.id))
+    delegated = await sdk.delegate_graph_authority_reference(
+        str(reference.id),
+        operation=GraphOperation.MATERIALIZE,
+        executor_service="graph-neuro-scheduler",
+        ttl_seconds=300,
+    )
     await sdk.revoke_graph_authority_reference(str(reference.id))
 
     assert isinstance(reference, GraphAuthorityReference)
     assert isinstance(decision, GraphAuthorityDecision)
+    assert isinstance(delegated, GraphAuthorityReference)
     assert calls[0]["json"]["actor_operation"] == "ingest"
     assert calls[1]["method"] == "POST"
-    assert calls[2]["method"] == "DELETE"
+    assert calls[2]["url"].endswith("/delegate/")
+    assert calls[2]["json"] == {
+        "operation": "materialize",
+        "executor_service": "graph-neuro-scheduler",
+        "ttl_seconds": 300,
+    }
+    assert calls[3]["method"] == "DELETE"
     await sdk._client.aclose()
