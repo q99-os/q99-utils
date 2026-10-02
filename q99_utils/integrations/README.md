@@ -151,6 +151,52 @@ If it needs something from the host that no port covers yet: add the protocol
 under `ports/`, add an optional field to `IntegrationContext`, implement it in
 the host's adapters, and wire it where the context is built.
 
+## Fracttal asset reads
+
+Fracttal uses a company OAuth Client Credentials consumer with read-only asset
+permissions. Configure its Key as `client_id` and Secret as `client_secret`.
+The token endpoint is `https://one.fracttal.com/oauth/token`; asset reads use
+`https://app.fracttal.com/api/items/`. No callback or manually copied JWT is needed.
+
+The session renews using the same client credentials before `expires_in` elapses,
+with a small safety margin, and retries once after a 401. A 403 is a permissions
+failure, not a renewal loop. Tokens stay in memory; only client credentials are
+stored encrypted by User Manager. Separate sessions obtain separate tokens.
+
+```python
+from q99_utils.enums import SourceEnum
+from q99_utils.integrations.sources.fracttal import FracttalIntegration
+integration = FracttalIntegration(source=SourceEnum.fracttal, um_sdk=um_sdk)
+integration.credential_id = credential_id
+rows = await integration.read_assets_page(start=0, limit=100)
+
+async with integration.session() as session:
+    assets = await session.read_assets(limit=100, filters={"item_type": 2})
+```
+
+Pagination starts at offset 0 with `limit` between 1 and 100. Full reads stop on
+a short or empty page; repeated pages, limits, and later failures raise instead
+of returning partial data. Asset fields are preserved without domain mapping.
+The provider's `total` is not used to infer completeness.
+
+Engine exposes a protected GET endpoint:
+`/engine/v1/integrations/{credential_id}/fracttal/assets/?start=0&limit=100`.
+Optional filters: `code`, `id`, `item_type` (1–5), `location_code`, `active`,
+`available`, and `is_tree`. The response contains `rows` and a candidate
+`next_start`; an exact full final page may require one extra empty read.
+Rate limits return 429, timeouts 504, and malformed/upstream failures 502.
+
+Add the integration under Integrations → Data Sources → Fracttal using a company
+administrator. Its connection test obtains a token and requests one asset;
+an empty successful page is valid. A bad secret must fail without saving or
+activating the credential. Real verification requires the customer's consumer.
+
+Deploy the library first, then bump `pyproject.toml` and `uv.lock` in Engine and
+User Manager to its actual merged SHA. Local live mounts do not verify these pins.
+
+References: [OAuth](https://api.fracttal.com/reference/oauth-2) and
+[assets](https://api.fracttal.com/reference/consultar-un-activo).
+
 ## Logging
 
 Use `q99_utils.logger.get_logger(__name__)`. The library attaches a
