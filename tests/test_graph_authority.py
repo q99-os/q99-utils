@@ -14,6 +14,7 @@ from q99_utils.um_sdk import UserManagerSDK
 GRAPH_ID = "11111111-1111-4111-8111-111111111111"
 DECISION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 REFERENCE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+CREATED_AT = datetime(2026, 10, 1, tzinfo=UTC).isoformat()
 
 
 async def test_authorize_graph_posts_operation_and_validates_response(monkeypatch):
@@ -69,6 +70,9 @@ async def test_list_graphs_accepts_paginated_catalog(monkeypatch):
                     "description": "",
                     "is_active": True,
                     "policy_version": 2,
+                    "created_by": None,
+                    "created_at": CREATED_AT,
+                    "updated_at": CREATED_AT,
                 }],
             }
         return {
@@ -79,12 +83,17 @@ async def test_list_graphs_accepts_paginated_catalog(monkeypatch):
                 "description": "",
                 "is_active": True,
                 "policy_version": 1,
+                "created_by": 7,
+                "created_at": CREATED_AT,
+                "updated_at": CREATED_AT,
             }]
         }
 
     monkeypatch.setattr(sdk, "_request", request)
     graphs = await sdk.list_graphs("read")
     assert [str(graph.id) for graph in graphs] == [GRAPH_ID, second_graph_id]
+    assert graphs[0].created_by == 7
+    assert graphs[0].created_at == datetime(2026, 10, 1, tzinfo=UTC)
     assert calls[0]["params"] == {"operation": "read"}
     assert calls[1]["params"] is None
     await sdk._client.aclose()
@@ -167,6 +176,7 @@ async def test_authority_reference_lifecycle_uses_opaque_handle(monkeypatch):
             return {**base, "policy_version": 8}
         return {
             **base,
+            "parent_id": REFERENCE_ID if kwargs["url"].endswith("/delegate/") else None,
             "revoked_at": None,
             "created_at": datetime(2029, 1, 1, tzinfo=UTC).isoformat(),
         }
@@ -191,6 +201,7 @@ async def test_authority_reference_lifecycle_uses_opaque_handle(monkeypatch):
     assert isinstance(reference, GraphAuthorityReference)
     assert isinstance(decision, GraphAuthorityDecision)
     assert isinstance(delegated, GraphAuthorityReference)
+    assert delegated.parent_id == reference.id
     assert calls[0]["json"]["actor_operation"] == "ingest"
     assert calls[1]["method"] == "POST"
     assert calls[2]["url"].endswith("/delegate/")

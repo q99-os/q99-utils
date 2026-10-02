@@ -15,7 +15,7 @@ class GraphOperation(StrEnum):
     ADMIN = "admin"
 
 
-class UMKnowledgeGraph(BaseModel):
+class _GraphSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: UUID
@@ -25,7 +25,15 @@ class UMKnowledgeGraph(BaseModel):
     policy_version: int
 
 
-class GraphAccessDecision(UMKnowledgeGraph):
+class UMKnowledgeGraph(_GraphSummary):
+    """Catalog row returned by User Manager's graph serializer."""
+
+    created_by: int | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class GraphAccessDecision(_GraphSummary):
     operation: GraphOperation
     allowed: bool
     actor_id: str
@@ -41,6 +49,7 @@ class GraphAuthorityReference(BaseModel):
 
     id: UUID
     graph_id: UUID
+    parent_id: UUID | None = None
     actor_kind: str
     actor_id: str
     actor_operation: GraphOperation
