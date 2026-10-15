@@ -439,6 +439,73 @@ class SharepointIntegration(MicrosoftGraphAuth, SourceIntegrationInterface):
         encoded = base64.urlsafe_b64encode(canonical.encode()).rstrip(b"=").decode("ascii")
         return f"u!{encoded}"
 
+    # Path-addressed reads reuse the credentials and Graph token this long. A caller polling a file
+    # would otherwise spend a UM credential fetch, a company-app lookup and a token POST per read.
+    PATH_SESSION_TTL_S = 300
+
+    async def _path_session(self) -> Tuple[Any, str]:
+        session = getattr(self, "_session", None)
+        if session and session[2] > time.monotonic():
+            return session[0], session[1]
+        credentials = await self.get_credentials()
+        access_token = await self.get_access_token(credentials)
+        self._session = (credentials, access_token, time.monotonic() + self.PATH_SESSION_TTL_S)
+        return credentials, access_token
+
+    def _item_url(self, path: str, credentials) -> Optional[str]:
+        """The driveItem URL for a path, without `/content`."""
+        target = path
+        if path.startswith("/sites/"):
+            host = self._host(credentials, self.credentials or {})
+            if not host:
+                logger.warning(
+                    f"[SharepointIntegration] cannot resolve {path!r}: the credential carries "
+                    "neither tenant_name nor a host-bearing site_id"
+                )
+                return None
+            target = f"https://{host}{path}"
+
+        if target.startswith("https://"):
+            return f"{GRAPH_BASE_URL}/shares/{self._share_token(target)}/driveItem"
+        site_id = getattr(credentials, "site_id", None) or self.credentials["site_id"]
+        return f"{GRAPH_BASE_URL}/sites/{site_id}/drive/root:/{path.strip('/')}:"
+
+    async def _get_by_path(self, path: str, suffix: str) -> Optional[httpx.Response]:
+        """GET `{item url}{suffix}`, retrying once with a new token on a 401. None on failure."""
+        for attempt in (1, 2):
+            credentials, access_token = await self._path_session()
+            item_url = self._item_url(path, credentials)
+            if item_url is None:
+                return None
+            url = f"{item_url}{suffix}"
+            try:
+                async with httpx.AsyncClient(timeout=180) as client:
+                    response = await client.get(
+                        url, headers={"Authorization": f"Bearer {access_token}"},
+                        follow_redirects=True,
+                    )
+                if response.status_code == 401 and attempt == 1:
+                    self._session = None
+                    continue
+                response.raise_for_status()
+                return response
+            except Exception:
+                # Both the request and what was asked for are logged: a path that named the wrong
+                # library, a URL the app has no grant for, and a genuinely missing file all arrive
+                # here, and they are indistinguishable without seeing both.
+                logger.warning(
+                    f"[SharepointIntegration] could not fetch {path!r} via {url}", exc_info=True,
+                )
+                return None
+        return None
+
+    async def get_file_metadata(self, path: str) -> Optional[Dict[str, Any]]:
+        """`cTag`, `eTag`, `lastModifiedDateTime` and `size` of a file, addressed as in
+        `get_file_by_path`. `cTag` changes only when the content does, so a caller can poll this
+        and download again only on a change. None when the path does not resolve."""
+        response = await self._get_by_path(path, "?$select=cTag,eTag,lastModifiedDateTime,size")
+        return response.json() if response is not None else None
+
     async def get_file_by_path(self, path: str) -> Optional[io.BytesIO]:
         """One file's bytes, addressed either by library path or by full URL.
 
@@ -461,42 +528,8 @@ class SharepointIntegration(MicrosoftGraphAuth, SourceIntegrationInterface):
         Returns None when the path does not resolve, so one missing file degrades its caller
         instead of failing everything around it.
         """
-        credentials: OnboardingData = await self.get_credentials()
-        access_token = await self.get_access_token(credentials)
-
-        target = path
-        if path.startswith("/sites/"):
-            host = self._host(credentials, self.credentials or {})
-            if not host:
-                logger.warning(
-                    f"[SharepointIntegration] cannot resolve {path!r}: the credential carries "
-                    "neither tenant_name nor a host-bearing site_id"
-                )
-                return None
-            target = f"https://{host}{path}"
-
-        if target.startswith("https://"):
-            url = f"{GRAPH_BASE_URL}/shares/{self._share_token(target)}/driveItem/content"
-        else:
-            site_id = getattr(credentials, "site_id", None) or self.credentials["site_id"]
-            url = f"{GRAPH_BASE_URL}/sites/{site_id}/drive/root:/{path.strip('/')}:/content"
-        try:
-            async with httpx.AsyncClient(timeout=180) as client:
-                response = await client.get(
-                    url, headers={"Authorization": f"Bearer {access_token}"},
-                    follow_redirects=True,
-                )
-                response.raise_for_status()
-        except Exception:
-            # Both the request and what was asked for are logged: a path that named the wrong
-            # library, a URL the app has no grant for, and a genuinely missing file all arrive
-            # here, and they are indistinguishable without seeing both.
-            logger.warning(
-                f"[SharepointIntegration] could not fetch {path!r} via {url}", exc_info=True,
-            )
-            return None
-
-        return io.BytesIO(response.content)
+        response = await self._get_by_path(path, "/content")
+        return io.BytesIO(response.content) if response is not None else None
 
     # Site metadata
 
