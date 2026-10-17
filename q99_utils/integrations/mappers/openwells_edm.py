@@ -5,6 +5,54 @@ from q99_utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# A station deeper than this (20 km, in feet) is a typing error, not a well.
+_MAX_STATION_MD_FT = 65_000
+
+
+def stitch_measured_runs(stations: list[dict]) -> list[dict]:
+    """The drilled pass of a well whose ACTUAL definitive survey was never compiled, rebuilt from
+    its measured survey runs (``CD_SURVEY_STATION``, one ``survey_header_id`` per run).
+
+    Runs apply in date order, each replacing only the stretch of MD it measured. A run without
+    azimuth (a drift or inclination-only tool: every azimuth empty or zero) never replaces one
+    that has it, and its stations are dropped below the deepest azimuth station, where its path
+    no longer follows the hole. Impossible stations (deeper than 20 km, TVD past MD) drop.
+    Returned in the shape of the definitive stations: phase ACTUAL, numbered along the path.
+    """
+    runs: dict[Any, list[dict]] = {}
+    for st in stations:
+        md, tvd = st.get("md"), st.get("tvd")
+        if md is None or md > _MAX_STATION_MD_FT or (tvd is not None and tvd > md + 3):
+            continue
+        runs.setdefault(st["survey_header_id"], []).append(st)
+
+    def ordered(run: list[dict]) -> tuple:
+        dated = run[0].get("header_date")
+        return (any(s.get("azimuth") for s in run), dated is not None, dated or 0, run[0]["md"])
+
+    kept: list[tuple[dict, bool]] = []
+    for run in sorted((sorted(r, key=lambda s: s["md"]) for r in runs.values()), key=ordered):
+        lo, hi, azimuth = run[0]["md"], run[-1]["md"], any(s.get("azimuth") for s in run)
+        kept = [k for k in kept if not lo <= k[0]["md"] <= hi] + [(s, azimuth) for s in run]
+    deepest = max((s["md"] for s, azimuth in kept if azimuth), default=None)
+    path = sorted((s for s, azimuth in kept if azimuth or deepest is None or s["md"] <= deepest), key=lambda s: s["md"])
+    return [
+        {
+            "phase": "ACTUAL",
+            "def_survey_header_id": None,
+            "sequence_no": n,
+            "md": s["md"],
+            "tvd": s.get("tvd"),
+            "inclination": s.get("inclination"),
+            "azimuth": s.get("azimuth"),
+            "dogleg_severity": s.get("dogleg_severity"),
+            "offset_north": s.get("offset_north"),
+            "offset_east": s.get("offset_east"),
+        }
+        for n, s in enumerate(path)
+    ]
+
+
 class OpenWellsEDMMapper(OpenWellsAgentMapper):
     """OpenWells agent mapper for the EDM schema.
 
@@ -136,6 +184,10 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
         into a sawtooth. The current one wins: stations carrying ``offset_north``
         first, then most recently updated. Ordered by the survey's own
         ``sequence_no``, so a sidetrack keeps its running order.
+
+        A well whose ACTUAL definitive was never compiled still has its measured
+        runs: its drilled pass is stitched from them (:func:`stitch_measured_runs`).
+        A plan never stands in for it.
         """
         sql = """
             WITH ranked AS (
@@ -177,7 +229,27 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 AND r.rn = 1
             ORDER BY r.phase ASC, dss.sequence_no ASC
         """
-        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+        rows = await self._driver.query(sql=self._compile(sql), params=(well_id,))
+        if any(r["phase"] == "ACTUAL" for r in rows):
+            return rows
+        # Measured runs only: a run with a survey tool. Plan imports and designs carry none.
+        runs_sql = """
+            SELECT
+                h.survey_header_id,
+                h.header_date,
+                s.md,
+                s.tvd,
+                s.inclination,
+                s.azimuth,
+                s.dogleg_severity,
+                s.offset_north,
+                s.offset_east
+            FROM CD_SURVEY_HEADER h
+            INNER JOIN CD_SURVEY_STATION s ON s.survey_header_id = h.survey_header_id
+            WHERE h.well_id = ? AND h.survey_tool_id IS NOT NULL
+        """
+        runs = await self._driver.query(sql=self._compile(runs_sql), params=(well_id,))
+        return rows + stitch_measured_runs(runs)
 
     async def fetch_depth_offset(self, well_id: str) -> float:
         """How much to add to a logged depth before converting it. Coalesced to
