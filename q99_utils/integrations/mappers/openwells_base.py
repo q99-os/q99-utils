@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Any
 
 
 class OpenWellsAgentMapper(ABC):
@@ -68,6 +69,36 @@ class OpenWellsAgentMapper(ABC):
 
     @abstractmethod
     async def fetch_plan_headers(self, well_id: str) -> list[dict]: ...
+
+    @abstractmethod
+    async def fetch_plan_costs(self, well_id: str) -> list[dict]: ...
+
+    @abstractmethod
+    async def fetch_cost_lines(self, well_id: str) -> list[dict]: ...
+
+    @abstractmethod
+    async def fetch_daily_reports(self, well_id: str) -> list[dict]: ...
+
+    @abstractmethod
+    async def fetch_rigs(self, well_id: str) -> list[dict]: ...
+
+    @abstractmethod
+    async def fetch_fluid_losses(self, well_id: str) -> list[dict]: ...
+
+    @abstractmethod
+    async def fetch_bit_operations(self, well_id: str) -> list[dict]: ...
+
+    @abstractmethod
+    async def fetch_bha_operations(self, well_id: str) -> list[dict]: ...
+
+    @abstractmethod
+    async def fetch_afes(self, well_id: str) -> list[dict]: ...
+
+    @abstractmethod
+    async def fetch_afe_lines(self, well_id: str) -> list[dict]: ...
+
+    @abstractmethod
+    async def fetch_billed_prices(self, since: Any) -> list[dict]: ...
 
     @abstractmethod
     async def fetch_wells(self) -> list[dict]: ...
