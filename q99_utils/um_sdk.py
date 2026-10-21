@@ -9,12 +9,39 @@ from q99_utils.models import (
 )
 
 class UserManagerSDK:
-    def __init__(self, access_token: str | None = None, *, api_key: str | None = None) -> None:
+    """Calls User Manager as one caller, over an HTTP client it can share.
+
+    Pass ``client`` to send through a client its owner opens and closes, typically one per process;
+    shared by several callers, it must keep no cookies. Without it the SDK opens its own, which
+    ``aclose()`` or ``async with`` closes."""
+
+    def __init__(
+        self,
+        access_token: str | None = None,
+        *,
+        api_key: str | None = None,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
         if access_token and api_key:
             raise ValueError("Pass either access_token or api_key, not both")
         self.access_token = access_token
         self.api_key = api_key
-        self._client = httpx.AsyncClient(timeout=30.0)
+        self._owns_client = client is None
+        self._client = httpx.AsyncClient(timeout=30.0) if client is None else client
+
+    @property
+    def http_client(self) -> httpx.AsyncClient:
+        return self._client
+
+    async def aclose(self) -> None:
+        if self._owns_client:
+            await self._client.aclose()
+
+    async def __aenter__(self) -> "UserManagerSDK":
+        return self
+
+    async def __aexit__(self, *exc_info) -> None:
+        await self.aclose()
 
     async def _request(
         self,
