@@ -27,6 +27,9 @@ class SourceEnum(StrEnum):
     bigquery = "bigquery"
     alamo = "alamo"
     fracttal = "fracttal"
+    # LLM sources named as litellm's providers: a client's own LiteLLM proxy, and Claude on Azure AI Foundry.
+    litellm_proxy = "litellm_proxy"
+    azure_ai = "azure_ai"
     # Login-only sources, kept separate from azure_ad (which owns IdP group sync)
     # so an SSO credential and a group-sync credential never share a source.
     microsoft_sso = "microsoft_sso"

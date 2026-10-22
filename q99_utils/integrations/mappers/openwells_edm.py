@@ -5,6 +5,54 @@ from q99_utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# A station deeper than this (20 km, in feet) is a typing error, not a well.
+_MAX_STATION_MD_FT = 65_000
+
+
+def stitch_measured_runs(stations: list[dict]) -> list[dict]:
+    """The drilled pass of a well whose ACTUAL definitive survey was never compiled, rebuilt from
+    its measured survey runs (``CD_SURVEY_STATION``, one ``survey_header_id`` per run).
+
+    Runs apply in date order, each replacing only the stretch of MD it measured. A run without
+    azimuth (a drift or inclination-only tool: every azimuth empty or zero) never replaces one
+    that has it, and its stations are dropped below the deepest azimuth station, where its path
+    no longer follows the hole. Impossible stations (deeper than 20 km, TVD past MD) drop.
+    Returned in the shape of the definitive stations: phase ACTUAL, numbered along the path.
+    """
+    runs: dict[Any, list[dict]] = {}
+    for st in stations:
+        md, tvd = st.get("md"), st.get("tvd")
+        if md is None or md > _MAX_STATION_MD_FT or (tvd is not None and tvd > md + 3):
+            continue
+        runs.setdefault(st["survey_header_id"], []).append(st)
+
+    def ordered(run: list[dict]) -> tuple:
+        dated = run[0].get("header_date")
+        return (any(s.get("azimuth") for s in run), dated is not None, dated or 0, run[0]["md"])
+
+    kept: list[tuple[dict, bool]] = []
+    for run in sorted((sorted(r, key=lambda s: s["md"]) for r in runs.values()), key=ordered):
+        lo, hi, azimuth = run[0]["md"], run[-1]["md"], any(s.get("azimuth") for s in run)
+        kept = [k for k in kept if not lo <= k[0]["md"] <= hi] + [(s, azimuth) for s in run]
+    deepest = max((s["md"] for s, azimuth in kept if azimuth), default=None)
+    path = sorted((s for s, azimuth in kept if azimuth or deepest is None or s["md"] <= deepest), key=lambda s: s["md"])
+    return [
+        {
+            "phase": "ACTUAL",
+            "def_survey_header_id": None,
+            "sequence_no": n,
+            "md": s["md"],
+            "tvd": s.get("tvd"),
+            "inclination": s.get("inclination"),
+            "azimuth": s.get("azimuth"),
+            "dogleg_severity": s.get("dogleg_severity"),
+            "offset_north": s.get("offset_north"),
+            "offset_east": s.get("offset_east"),
+        }
+        for n, s in enumerate(path)
+    ]
+
+
 class OpenWellsEDMMapper(OpenWellsAgentMapper):
     """OpenWells agent mapper for the EDM schema.
 
@@ -136,6 +184,10 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
         into a sawtooth. The current one wins: stations carrying ``offset_north``
         first, then most recently updated. Ordered by the survey's own
         ``sequence_no``, so a sidetrack keeps its running order.
+
+        A well whose ACTUAL definitive was never compiled still has its measured
+        runs: its drilled pass is stitched from them (:func:`stitch_measured_runs`).
+        A plan never stands in for it.
         """
         sql = """
             WITH ranked AS (
@@ -177,7 +229,27 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 AND r.rn = 1
             ORDER BY r.phase ASC, dss.sequence_no ASC
         """
-        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+        rows = await self._driver.query(sql=self._compile(sql), params=(well_id,))
+        if any(r["phase"] == "ACTUAL" for r in rows):
+            return rows
+        # Measured runs only: a run with a survey tool. Plan imports and designs carry none.
+        runs_sql = """
+            SELECT
+                h.survey_header_id,
+                h.header_date,
+                s.md,
+                s.tvd,
+                s.inclination,
+                s.azimuth,
+                s.dogleg_severity,
+                s.offset_north,
+                s.offset_east
+            FROM CD_SURVEY_HEADER h
+            INNER JOIN CD_SURVEY_STATION s ON s.survey_header_id = h.survey_header_id
+            WHERE h.well_id = ? AND h.survey_tool_id IS NOT NULL
+        """
+        runs = await self._driver.query(sql=self._compile(runs_sql), params=(well_id,))
+        return rows + stitch_measured_runs(runs)
 
     async def fetch_depth_offset(self, well_id: str) -> float:
         """How much to add to a logged depth before converting it. Coalesced to
@@ -235,7 +307,8 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 dpr.date_report,
                 dpd.nominal_size,
                 dpr.run_length,
-                ca.hole_size
+                ca.hole_size,
+                dpr.event_id
             FROM DM_PIPE_RUN AS dpr
             RIGHT JOIN DM_PIPE_DATA AS dpd
                 ON dpr.assembly_id = dpd.assembly_id
@@ -329,7 +402,8 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 d.weight,
                 d.grade,
                 d.range,
-                d.id_drift
+                d.id_drift,
+                t.event_id
             FROM DM_PIPE_TALLY t
             LEFT JOIN DM_PIPE_DATA d
                 ON d.pipe_data_id = t.pipe_data_id
@@ -361,7 +435,8 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 dbr.daily_sliding_footage,
                 dbr.daily_rotating_footage,
                 dbr.daily_sliding_hours,
-                dbr.daily_rotating_hours
+                dbr.daily_rotating_hours,
+                ca.event_id
             FROM DM_BHA_RUN AS dbr
             LEFT JOIN CD_BHA_COMP_BIT AS cbcb
                 ON cbcb.assembly_id = dbr.assembly_id
@@ -392,7 +467,8 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 cac.max_bend,
                 cac.blade_length,
                 cac.joints,
-                cac.sequence_no
+                cac.sequence_no,
+                ca.event_id
             FROM CD_ASSEMBLY_COMP cac
             JOIN CD_ASSEMBLY ca ON ca.assembly_id = cac.assembly_id
             WHERE ca.assembly_id IN (SELECT assembly_id FROM DM_BHA_RUN WHERE well_id = ?)
@@ -423,7 +499,8 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 conc_ca,
                 viscosity_funnel,
                 md_mud_sample,
-                check_date
+                check_date,
+                event_id
             FROM CD_FLUID
             WHERE well_id = ?
             ORDER BY md_mud_sample ASC, create_date ASC
@@ -471,6 +548,11 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
         """NPT events. ``npt_net_time`` is the operator's own accounting, bounded
         by the event window — an event cannot bill more time than it lasted.
 
+        ``npt_total_cost_net`` is the operator's valuation, normally net hours
+        times ``failure_day_cost`` / 24: an estimate at the day rate entered on
+        the event, not an invoice. Where no day rate was entered the cost is
+        zero, so a zero next to hours means "not valued", not "free".
+
         Placement is the caller's: ``first_activity_id`` points at the activity
         the event began on. Resolving it here means joining the activity log and
         carrying an ntext description through that join, which costs ~25 s a well
@@ -500,6 +582,7 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 ef.contractor_name,
                 ef.npt_total_cost_net,
                 ef.failure_total_cost,
+                ef.failure_day_cost,
                 ef.event_id,
                 ef.first_activity_id,
                 ef.last_activity_id
@@ -547,7 +630,8 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 flowrate_overflow,
                 flowrate_underflow,
                 press_op,
-                CAST(NULL AS FLOAT) AS rpm
+                CAST(NULL AS FLOAT) AS rpm,
+                event_id
             FROM DM_HYDROCLONE_OP
             WHERE well_id = ?
             UNION ALL
@@ -563,7 +647,8 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 overflow_flowrate   AS flowrate_overflow,
                 underflow_flowrate  AS flowrate_underflow,
                 CAST(NULL AS FLOAT) AS press_op,
-                rpm                 AS rpm
+                rpm                 AS rpm,
+                event_id            AS event_id
             FROM DM_CENTRIFUGE_OP
             WHERE well_id = ?
             ORDER BY date_op
@@ -572,10 +657,13 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
 
     async def fetch_plan_operations(self, well_id: str) -> list[dict]:
         """Planned operations for the well, across every plan. ``well_plan_id``
-        joins to :meth:`fetch_plan_headers`, which the caller picks from."""
+        joins to :meth:`fetch_plan_headers`, which the caller picks from.
+        ``step_no`` is the step's number in the program, the one the crew books
+        each activity to in the activity's own ``step_no``."""
         sql = """
             SELECT
                 well_plan_id,
+                step_no,
                 md_from,
                 md_to,
                 activity_memo,
@@ -591,20 +679,290 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
 
     async def fetch_plan_headers(self, well_id: str) -> list[dict]:
         """One row per program filed against the well: what kind of job it is,
-        which revision, when it was planned. Which one to draw is the caller's
-        call — see the operations."""
+        which revision, when it was planned, and the event and AFE it was built
+        for. Which one to draw is the caller's call — see the operations."""
         sql = """
             SELECT
                 well_plan_id,
                 job_type,
                 version,
                 planning_start_date,
-                expected_work_start_date
+                expected_work_start_date,
+                event_id,
+                afe_id
             FROM DM_WELL_PLAN
             WHERE
                 well_id = ?
         """
         return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_plan_costs(self, well_id: str) -> list[dict]:
+        """What each planned step was budgeted, in money and time, across every plan.
+
+        Rows pair one to one with :meth:`fetch_plan_operations` on
+        ``(well_plan_id, sequence_no)``. ``afe_duration`` is in hours. A plan's
+        ``afe_cost`` usually adds up to the AFE it was costed into (``afe_id``
+        on :meth:`fetch_plan_headers`), but an edit made on one side only can
+        leave them a few percent apart. The ``target_*`` pair is the plan's own
+        target and is usually blank.
+        """
+        sql = """
+            SELECT
+                well_plan_id,
+                sequence_no,
+                afe_cost,
+                afe_duration,
+                target_cost,
+                target_duration
+            FROM DM_WELL_PLAN_HOLE_SECT
+            WHERE
+                well_id = ?
+            ORDER BY well_plan_id, sequence_no
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_cost_lines(self, well_id: str) -> list[dict]:
+        """Every money line booked against the well, one row per line of the daily cost report.
+
+        A report's total is the sum of its lines. Rentals and rates are booked
+        again on every day they run: each is that day's spend, not a duplicate.
+        ``cost_group`` is the ledger account and the key to compare against an
+        AFE, whose lines carry the same accounts; descriptions are free text on
+        both sides and don't line up. No column states the currency reliably.
+        """
+        sql = """
+            SELECT
+                event_id,
+                daily_id,
+                cost_date,
+                cost_group,
+                description,
+                item_description,
+                vendor_name,
+                item_quantity,
+                item_unit,
+                cost_per_item,
+                cost_amount,
+                afe_id
+            FROM DM_DAILYCOST
+            WHERE
+                well_id = ?
+            ORDER BY cost_date, sequence_no
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_daily_reports(self, well_id: str) -> list[dict]:
+        """The well's daily reports: one row per report, with the supervisor's
+        summary of the day in their own words and their plan for the next 24
+        hours, written that same day: a plan, not what then happened.
+
+        ``md_current`` is where the hole stood when the report closed, from the
+        well's own datum like every other MD here. ``report_no`` is free text on
+        some deployments.
+        """
+        sql = """
+            SELECT
+                daily_id,
+                event_id,
+                date_report,
+                report_no,
+                md_current,
+                comment_summary,
+                comment_forecast_24
+            FROM DM_DAILY
+            WHERE
+                well_id = ?
+            ORDER BY date_report
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_rigs(self, well_id: str) -> list[dict]:
+        """The rigs that worked the well's events, one row per event-to-rig
+        link: the rig's name, number and owner, and when it rigged up and was
+        released. A well drilled in batches has one rig per campaign, and a
+        rig can be linked more than once to the same event.
+        """
+        sql = """
+            SELECT
+                l.event_id,
+                l.rig_id,
+                r.rig_name,
+                r.rig_no,
+                r.rig_owner,
+                o.date_rig_up,
+                o.date_rig_released
+            FROM DM_RIG_OPERATION_EVENT_LINK l
+            JOIN DM_RIG_OPERATION o
+                ON o.rig_operation_id = l.rig_operation_id
+            JOIN CD_RIG r
+                ON r.rig_id = l.rig_id
+            WHERE
+                l.well_id = ?
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_fluid_losses(self, well_id: str) -> list[dict]:
+        """Mud lost per daily report, in bbl: downhole (``mud_lost_subsurface``,
+        to the formation), at surface (``mud_lost_surface``: solids control,
+        tripping, spills) and, of that, at the shakers. Each row carries its
+        report's date, number and the depth the hole stood at.
+        """
+        sql = """
+            SELECT
+                l.event_id,
+                l.daily_id,
+                d.date_report,
+                d.report_no,
+                d.md_current,
+                l.mud_lost_subsurface,
+                l.mud_lost_surface,
+                l.mud_lost_surface_shaker
+            FROM DM_FLUID_LOSS l
+            JOIN DM_DAILY d
+                ON d.daily_id = l.daily_id
+                AND d.well_id = l.well_id
+            WHERE
+                l.well_id = ?
+            ORDER BY d.date_report
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_bit_operations(self, well_id: str) -> list[dict]:
+        """Drilling parameters as reported per BHA run and daily report: the
+        interval drilled (``md_top`` to ``md_base``), its hours and footage,
+        ROP, weight on bit, rotary speed, torque, flow and standpipe pressure.
+        Units as entered: MD ft, ROP ft/h, WOB klbf, flow gpm, pressure psi.
+        A zero is usually a field left blank.
+        """
+        sql = """
+            SELECT
+                event_id,
+                daily_id,
+                bha_run_id,
+                date_op,
+                md_top,
+                md_base,
+                op_duration,
+                op_progress,
+                rop,
+                wob_avg,
+                rpm_avg,
+                torque_avg,
+                flowrate,
+                pressure_standpipe
+            FROM DM_BIT_OP
+            WHERE
+                well_id = ?
+            ORDER BY date_op
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_bha_operations(self, well_id: str) -> list[dict]:
+        """The same parameters as recorded on the BHA's own daily sheet, which
+        some reports fill instead of the bit's: one row per BHA run and daily
+        report, at ``md_op``. Units as :meth:`fetch_bit_operations`.
+        """
+        sql = """
+            SELECT
+                event_id,
+                daily_id,
+                bha_run_id,
+                date_op,
+                md_op,
+                wob_avg,
+                wob,
+                rpm_rotating_avg,
+                rpm,
+                torque_on_bottom_avg,
+                flow_rate,
+                stand_pipe_pressure
+            FROM DM_BHA_OP
+            WHERE
+                well_id = ?
+            ORDER BY date_op
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_afes(self, well_id: str) -> list[dict]:
+        """The AFEs linked to the well's events, one row per event-to-AFE link.
+
+        Operators copy AFEs: one budget can sit under two events as two records
+        with the same number, description and total, so a caller adding budgets
+        up dedupes on those, not on ``afe_id``. ``currency_code`` is free text
+        and often blank.
+        """
+        sql = """
+            SELECT
+                l.event_id,
+                a.afe_id,
+                a.afe_no,
+                a.afe_desc,
+                a.afe_total,
+                a.estimated_days,
+                a.currency_code
+            FROM DM_AFE_EVENT_LINK l
+            INNER JOIN DM_AFE a
+                ON a.afe_id = l.afe_id
+            WHERE
+                l.well_id = ?
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_afe_lines(self, well_id: str) -> list[dict]:
+        """The budget lines of every AFE linked to the well, each AFE once even
+        when two of the well's events share it.
+
+        ``afe_amount`` is the line's budget. Match lines to actuals on
+        ``cost_group``, the ledger account: a line's ``cost_description`` can
+        name a different item than its account, vendor and price do.
+        """
+        sql = """
+            SELECT
+                afe_id,
+                sequence_no,
+                cost_group,
+                cost_description,
+                vendor,
+                item_cost,
+                item_quantity,
+                item_unit,
+                afe_amount
+            FROM DM_AFE_COST
+            WHERE
+                afe_id IN (SELECT afe_id FROM DM_AFE_EVENT_LINK WHERE well_id = ?)
+            ORDER BY afe_id, sequence_no
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_billed_prices(self, since: Any) -> list[dict]:
+        """Every unit price the fleet was billed since ``since``, one row per
+        vendor, account, item, unit and price: how much was bought at it, on how
+        many wells, and over which dates.
+
+        An aggregate rather than the line log, so a caller can tell a price
+        apart from the ones billed for the same item around it without reading
+        every line in the tenant.
+        """
+        sql = """
+            SELECT
+                vendor_name,
+                cost_group,
+                item_description,
+                item_unit,
+                cost_per_item,
+                COUNT(*) AS line_count,
+                COUNT(DISTINCT well_id) AS well_count,
+                SUM(item_quantity) AS quantity,
+                SUM(cost_amount) AS amount,
+                MIN(cost_date) AS first_date,
+                MAX(cost_date) AS last_date
+            FROM DM_DAILYCOST
+            WHERE
+                cost_date >= ?
+                AND cost_per_item IS NOT NULL
+            GROUP BY vendor_name, cost_group, item_description, item_unit, cost_per_item
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(since,))
 
     async def fetch_wells(self) -> list[dict]:
         """Every named well in the tenant. The name is trimmed, blank counts as

@@ -11,6 +11,8 @@ class OnboardingData(BaseModel):
     api_key: str | None = Field(default=None)
     api_version: str | None = Field(default=None)
     api_base: str | None = Field(default=None)
+    # Which of our model families a LiteLLM proxy serves under our names: anthropic, gemini or openai.
+    model_family: str | None = Field(default=None)
     client_id: str | None = Field(default=None)
     tenant_id: str | None = Field(default=None)
     client_secret: str | None = Field(default=None)

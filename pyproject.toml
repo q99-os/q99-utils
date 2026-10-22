@@ -1,6 +1,6 @@
 [project]
 name = "q99-utils"
-version = "0.4.0"
+version = "0.5.0"
 description = "Library of common q99 services"
 readme = "README.md"
 authors = [{ name = "Q99" }]
@@ -9,6 +9,8 @@ dependencies = [
     "fastapi==0.137.2",
     "httpx==0.28.1",
     "pydantic==2.12.5",
+    # A range, not a pin: user-manager pins PyJWT itself.
+    "pyjwt[crypto]>=2.8.0,<3",
 ]
 
 [project.optional-dependencies]

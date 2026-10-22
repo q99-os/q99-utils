@@ -172,6 +172,97 @@ async def test_a_server_relative_path_gets_the_tenant_host_from_the_credential(m
     assert f"/shares/{expected}/driveItem/content" in graph_get
 
 
+async def test_metadata_addresses_the_item_not_its_content(monkeypatch):
+    requested = _patch_transport(
+        monkeypatch, response=httpx.Response(200, json={"cTag": "c1", "eTag": "e1", "size": 3}),
+    )
+    integration = _integration(monkeypatch)
+
+    meta = await integration.get_file_metadata("/sites/BI/Lib/x.xlsx")
+    await integration.get_file_metadata("Test_folder/x.xlsx")
+
+    assert meta == {"cTag": "c1", "eTag": "e1", "size": 3}
+    by_share, by_path = [u for u in requested if "graph.microsoft.com" in u]
+    token = SharepointIntegration._share_token("https://contoso.sharepoint.com/sites/BI/Lib/x.xlsx")
+    assert by_share.endswith(f"/shares/{token}/driveItem?$select=cTag,eTag,lastModifiedDateTime,size")
+    assert by_path.endswith(f"/sites/{SITE_ID}/drive/root:/Test_folder/x.xlsx:?$select=cTag,eTag,lastModifiedDateTime,size")
+
+
+async def test_metadata_of_a_missing_file_is_none(monkeypatch):
+    _patch_transport(monkeypatch, response=httpx.Response(404, content=b'{"error":{}}'))
+    assert await _integration(monkeypatch).get_file_metadata("Nope/x.xlsx") is None
+
+
+def _counting_session(monkeypatch, integration) -> dict:
+    """Count credential reads and hand out a new token on each one."""
+    calls = {"credentials": 0}
+
+    async def credentials(*args, **kwargs):
+        calls["credentials"] += 1
+        return {"site_id": SITE_ID}
+
+    async def token(*args, **kwargs):
+        return f"tok{calls['credentials']}"
+
+    monkeypatch.setattr(integration, "get_credentials", credentials, raising=False)
+    monkeypatch.setattr(integration, "get_access_token", token, raising=False)
+    return calls
+
+
+async def test_repeated_reads_reuse_the_credentials_and_token(monkeypatch):
+    """A caller polling a file must not spend UM calls and a token POST on every read."""
+    _patch_transport(monkeypatch, response=httpx.Response(200, json={"cTag": "c1"}))
+    integration = _integration(monkeypatch)
+    calls = _counting_session(monkeypatch, integration)
+
+    for _ in range(3):
+        await integration.get_file_metadata("x.xlsx")
+    await integration.get_file_by_path("x.xlsx")
+
+    assert calls["credentials"] == 1
+
+
+async def test_an_expired_session_is_read_again(monkeypatch):
+    _patch_transport(monkeypatch, response=httpx.Response(200, json={"cTag": "c1"}))
+    integration = _integration(monkeypatch)
+    calls = _counting_session(monkeypatch, integration)
+    monkeypatch.setattr(SharepointIntegration, "PATH_SESSION_TTL_S", -1)
+
+    await integration.get_file_metadata("x.xlsx")
+    await integration.get_file_metadata("x.xlsx")
+
+    assert calls["credentials"] == 2
+
+
+async def test_a_401_retries_once_with_a_new_token(monkeypatch):
+    seen_tokens: list = []
+    answers = [httpx.Response(401), httpx.Response(200, json={"cTag": "c2"})]
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def get(self, url, *args, headers=None, **kwargs):
+            seen_tokens.append(headers["Authorization"])
+            answer = answers.pop(0)
+            return httpx.Response(
+                answer.status_code, content=answer.content, request=httpx.Request("GET", url),
+            )
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    integration = _integration(monkeypatch)
+    _counting_session(monkeypatch, integration)
+
+    assert await integration.get_file_metadata("x.xlsx") == {"cTag": "c2"}
+    assert seen_tokens == ["Bearer tok1", "Bearer tok2"]
+
+
 async def test_the_host_falls_back_to_the_site_id(monkeypatch):
     """site_id is 'hostname,site-guid,web-guid', so it carries the host when tenant_name is unset."""
     requested = _patch_transport(monkeypatch, response=httpx.Response(200, content=b"x"))
