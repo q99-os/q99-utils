@@ -26,6 +26,7 @@ class SourceEnum(StrEnum):
     azure_ad = "azure_ad"
     bigquery = "bigquery"
     alamo = "alamo"
+    fracttal = "fracttal"
     # LLM sources named as litellm's providers: a client's own LiteLLM proxy, and Claude on Azure AI Foundry.
     litellm_proxy = "litellm_proxy"
     azure_ai = "azure_ai"
