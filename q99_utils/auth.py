@@ -34,6 +34,7 @@ class TokenClaims(BaseModel):
     is_staff: bool = False
     is_superuser: bool = False
     groups: dict[str, list[str]] = {}
+    group_ids: list[int] = []
     perms: list[str] = []
     blocked: dict[str, list[str]] = {}
     lock: dict | None = None

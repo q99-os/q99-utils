@@ -333,6 +333,11 @@ class UserManagerSDK:
         url = f"{USER_MANAGER_URL}/v1/reports/"
         return await self._request(method="POST", url=url, json=report.model_dump())
 
+    async def list_service_permissions(self, service: str):
+        """A service's permissions, each with the groups that hold it, keyed by the service."""
+        url = f"{USER_MANAGER_URL}/v1/permissions"
+        return await self._request(method="GET", url=url, params={"service": service})
+
     async def get_report(self, report_id: str):
         """Report detail including its sections."""
         url = f"{USER_MANAGER_URL}/v1/reports/{report_id}/"
