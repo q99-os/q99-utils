@@ -8,7 +8,7 @@ version bumps rare.
     wells = WellsSDK(access_token=token)
     pad   = await wells.pads.create({"name": "PAD 25", "field_id": fid})
     plans = await wells.pad_plans.list(pad_id=pad["id"])
-    await wells.plan_phases.update(phase_id, {"md_base_m": 2500})
+    page  = await wells.pad_plans.view(plans[0]["id"], "schedule/workspace")
 """
 
 from __future__ import annotations
@@ -25,9 +25,7 @@ _RESOURCES = [
     "fields", "pads", "wells",
     "phase-types", "activities", "formations", "providers", "service-groups",
     "bits", "casings",
-    "pad-plans", "well-plans", "plan-phases", "plan-bits", "plan-casings",
-    "plan-activities", "plan-formation-tops", "plan-trajectory-points",
-    "rates", "plan-rates", "cost-lines",
+    "pad-plans", "rates",
 ]
 
 
@@ -44,10 +42,10 @@ class _Resource:
     async def get(self, row_id: str) -> dict:
         return await self._sdk._request("GET", f"{self._base}{row_id}/")
 
-    async def view(self, row_id: str, name: str) -> Any:
+    async def view(self, row_id: str, name: str, **params: Any) -> Any:
         """A computed view of one row — `pad_plans.view(id, "schedule")`. Views are reads over
         a resource, not resources, so they answer whatever shape the service publishes."""
-        return await self._sdk._request("GET", f"{self._base}{row_id}/{name}/")
+        return await self._sdk._request("GET", f"{self._base}{row_id}/{name}/", params=params or None)
 
     async def action(self, row_id: str, name: str, data: dict | None = None) -> Any:
         """POST an action on one row — `pad_plans.action(id, "fill")` runs the compute."""
@@ -58,9 +56,8 @@ class _Resource:
         sends the whole set it wants, not a diff."""
         return await self._sdk._request("PUT", f"{self._base}{row_id}/{name}/", json=data)
 
-    async def create(self, data: dict | list[dict]) -> dict | list[dict]:
-        """The payload goes as given: the high-volume child collections take a list and write it
-        in one transaction, every other collection takes a single object."""
+    async def create(self, data: dict) -> dict:
+        """One object, as given; a pad takes its wells inside it."""
         return await self._sdk._request("POST", self._base, json=data)
 
     async def update(self, row_id: str, data: dict) -> dict:
@@ -71,13 +68,14 @@ class _Resource:
 
 
 def _as_error(response: httpx.Response) -> HTTPException:
-    """Wells' own sentence for the caller's mistakes; one of ours for anything that is the
-    service's or this deployment's problem. A wells 401 is the CALLER'S service key, never
-    the end user's session, so it must not reach a browser as one."""
+    """Wells' own sentence for the caller's mistakes, a missing permission included, and each
+    field a validation refused with its reason; one of ours for anything that is the service's
+    or this deployment's problem. A wells 401 must
+    not reach a browser as one: there it reads as the end user's session ending."""
     code = response.status_code
-    if code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN):
+    if code == status.HTTP_401_UNAUTHORIZED:
         return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                             detail="The caller is not authorized to the wells service — check its service key.")
+                             detail="qWells couldn't confirm who is asking. Try again in a moment.")
     if code == status.HTTP_429_TOO_MANY_REQUESTS or code >= 500:
         return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                              detail="The wells service is busy — try again in a moment.")
@@ -85,9 +83,15 @@ def _as_error(response: httpx.Response) -> HTTPException:
         body = response.json()
     except ValueError:
         body = None
-    detail = body.get("detail") if isinstance(body, dict) else body
-    return HTTPException(status_code=code,
-                         detail=detail if isinstance(detail, str) else "The wells service rejected the request.")
+    detail = (body.get("error") or body.get("detail")) if isinstance(body, dict) else body
+    errors = body.get("errors") if isinstance(body, dict) else None
+    if code == status.HTTP_422_UNPROCESSABLE_CONTENT and isinstance(errors, list) and errors:
+        detail = "; ".join(f"{'.'.join(str(part) for part in (error.get('loc') or [])[1:]) or 'request'}: {error.get('msg')}"
+                           for error in errors if isinstance(error, dict))
+    if not isinstance(detail, str) or not detail:
+        detail = ("You don't have permission to do this in qWells. Ask your administrator."
+                  if code == status.HTTP_403_FORBIDDEN else "The wells service rejected the request.")
+    return HTTPException(status_code=code, detail=detail)
 
 
 class WellsSDK:
