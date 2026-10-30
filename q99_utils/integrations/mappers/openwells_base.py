@@ -107,6 +107,9 @@ class OpenWellsAgentMapper(ABC):
     async def fetch_npt_last_end(self, well_ids: list[str] | None = None) -> list[dict]: ...
 
     @abstractmethod
+    async def fetch_sites(self, site_ids: list[str] | None = None) -> list[dict]: ...
+
+    @abstractmethod
     async def search_wells_text(self, search_query: str) -> list[dict]: ...
 
     @abstractmethod
@@ -120,6 +123,7 @@ class OpenWellsAgentMapper(ABC):
         field_name: str | None,
         target_formation: str | None,
         max_wells: int,
+        site_id: str | None = None,
     ) -> list[dict]: ...
 
     @abstractmethod
