@@ -39,6 +39,14 @@ class PermissionTokens:
     def domain(value: str) -> str:
         return f"domain:{value.strip().lower()}"
 
+    @classmethod
+    def user(cls, user_id) -> str:
+        return f"{cls.APP_SCOPE}:user:{user_id}"
+
+    @classmethod
+    def group_id(cls, group_id) -> str:
+        return f"{cls.APP_SCOPE}:group_id:{group_id}"
+
 
 # Groups holding this permission can see the files ingested from the company mailbox.
 MAILBOX_FILES_PERMISSION = "files.mailbox:read"

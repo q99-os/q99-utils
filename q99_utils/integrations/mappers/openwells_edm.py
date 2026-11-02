@@ -976,6 +976,7 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                     NULLIF(LTRIM(RTRIM(well_legal_name)), '')
                 ) AS name,
                 field_name,
+                site_id,
                 well_operator,
                 loc_country,
                 loc_state,
@@ -1012,13 +1013,30 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
         """
         return await self._driver.query(sql=self._compile(sql), params=params)
 
+    async def fetch_sites(self, site_ids: list[str] | None = None) -> list[dict]:
+        """The sites wells stand on, a pad shared by the wells drilled from it or
+        a single well's location; every site when no ids are given."""
+        where, params = "", ()
+        if site_ids is not None:
+            if not site_ids:
+                return []
+            where = f"WHERE site_id IN ({', '.join(['?'] * len(site_ids))})"
+            params = tuple(site_ids)
+        sql = f"""
+            SELECT site_id, site_name
+            FROM CD_SITE_SOURCE
+            {where}
+        """
+        return await self._driver.query(sql=self._compile(sql), params=params)
+
     async def search_wells_text(self, search_query: str) -> list[dict]:
-        """Wells matching ``search_query`` on any name or identifier."""
+        """Wells matching ``search_query`` on any name or identifier, or on the
+        name of the site (pad) they stand on."""
         param = f"%{search_query}%"
         sql = """
             SELECT
                 well_id, well_legal_name, well_common_name,
-                field_name, well_operator,
+                field_name, site_id, well_operator,
                 loc_country, loc_state, loc_county,
                 spud_date, target_formation, is_offshore, well_purpose
             FROM CD_WELL_SOURCE
@@ -1027,16 +1045,17 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                OR field_name LIKE ?
                OR well_operator LIKE ?
                OR well_uwi LIKE ?
-               OR well_id LIKE ?)
+               OR well_id LIKE ?
+               OR site_id IN (SELECT site_id FROM CD_SITE_SOURCE WHERE site_name LIKE ?))
                AND well_legal_name IS NOT NULL
             ORDER BY spud_date DESC
         """
-        return await self._driver.query(sql=self._compile(sql), params=(param,) * 6)
+        return await self._driver.query(sql=self._compile(sql), params=(param,) * 7)
 
     async def fetch_reference_well(self, well_id: str) -> dict | None:
         rows = await self._driver.query(
             sql=self._compile(
-                "SELECT well_legal_name, field_name, target_formation "
+                "SELECT well_legal_name, field_name, target_formation, site_id "
                 "FROM CD_WELL_SOURCE WHERE well_id = ?"
             ),
             params=(well_id,),
@@ -1050,24 +1069,38 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
         field_name: str | None,
         target_formation: str | None,
         max_wells: int,
+        site_id: str | None = None,
     ) -> list[dict]:
-        where_clauses = ["well_legal_name IS NOT NULL", "well_id != ?"]
+        """Wells like the reference: in its field and formation, or on its site
+        (pad) whatever they are filed under; the pad's first, then the latest spud."""
+        where = ["well_legal_name IS NOT NULL", "well_id != ?"]
         params: list[str] = [reference_well_id]
+        similar, similar_params = [], []
         if field_name:
-            where_clauses.append("field_name = ?")
-            params.append(field_name)
+            similar.append("field_name = ?")
+            similar_params.append(field_name)
         if target_formation:
-            where_clauses.append("target_formation = ?")
-            params.append(target_formation)
+            similar.append("target_formation = ?")
+            similar_params.append(target_formation)
+        if site_id and similar:
+            where.append(f"(site_id = ? OR ({' AND '.join(similar)}))")
+            params += [site_id, *similar_params]
+        else:
+            where += similar
+            params += similar_params
+        order = "spud_date DESC"
+        if site_id:
+            order = "CASE WHEN site_id = ? THEN 0 ELSE 1 END, spud_date DESC"
+            params.append(site_id)
         sql = f"""
             SELECT TOP {int(max_wells)}
                 well_id, well_legal_name, well_common_name,
-                field_name, well_operator,
+                field_name, site_id, well_operator,
                 loc_country, loc_state, loc_county,
                 spud_date, target_formation, is_offshore, well_purpose
             FROM CD_WELL_SOURCE
-            WHERE {' AND '.join(where_clauses)}
-            ORDER BY spud_date DESC
+            WHERE {' AND '.join(where)}
+            ORDER BY {order}
         """
         return await self._driver.query(sql=self._compile(sql), params=tuple(params))
 
