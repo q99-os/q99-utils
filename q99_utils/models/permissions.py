@@ -40,4 +40,8 @@ class PermissionTokens:
         return f"domain:{value.strip().lower()}"
 
 
-__all__ = ["PermissionTokens"]
+# Groups holding this permission can see the files ingested from the company mailbox.
+MAILBOX_FILES_PERMISSION = "files.mailbox:read"
+
+
+__all__ = ["MAILBOX_FILES_PERMISSION", "PermissionTokens"]

@@ -8,6 +8,7 @@ from q99_utils.integrations.sources.bigquery import BigQueryIntegration
 from q99_utils.integrations.sources.bucket import BucketIntegration
 from q99_utils.integrations.sources.databricks import DatabricksIntegration
 from q99_utils.integrations.sources.gmail import GmailIntegration
+from q99_utils.integrations.sources.gmail_mailbox import GmailMailboxIntegration
 from q99_utils.integrations.sources.fracttal import FracttalIntegration
 from q99_utils.integrations.sources.google_sso import GoogleSsoIntegration
 from q99_utils.integrations.sources.greenapi import GreenAPIIntegration
@@ -15,6 +16,7 @@ from q99_utils.integrations.sources.local_files import LocalFilesIntegration
 from q99_utils.integrations.sources.mssql import MSSQLIntegration
 from q99_utils.integrations.sources.openwells import OpenWellsIntegration
 from q99_utils.integrations.sources.outlook import OutlookIntegration
+from q99_utils.integrations.sources.outlook_mailbox import OutlookMailboxIntegration
 from q99_utils.integrations.sources.postgres import PostgresIntegration
 from q99_utils.integrations.sources.sharepoint import SharepointIntegration
 from q99_utils.integrations.sources.slack import SlackIntegration
@@ -38,6 +40,7 @@ __all__ = [
     "BucketIntegration",
     "DatabricksIntegration",
     "GmailIntegration",
+    "GmailMailboxIntegration",
     "FracttalIntegration",
     "GoogleDriveIntegration",
     "GoogleSsoIntegration",
@@ -46,6 +49,7 @@ __all__ = [
     "MSSQLIntegration",
     "OpenWellsIntegration",
     "OutlookIntegration",
+    "OutlookMailboxIntegration",
     "PostgresIntegration",
     "SharepointIntegration",
     "SlackIntegration",

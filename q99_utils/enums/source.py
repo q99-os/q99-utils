@@ -36,6 +36,10 @@ class SourceEnum(StrEnum):
     google_sso = "google_sso"
     google_oauth_app = "google_oauth_app"
     microsoft_oauth_app = "microsoft_oauth_app"
+    # Dedicated company mailboxes whose attachments are ingested. Separate from
+    # gmail/outlook, which are each user's own send-only mail.
+    outlook_mailbox = "outlook_mailbox"
+    gmail_mailbox = "gmail_mailbox"
 
 
 __all__ = ["SourceEnum"]

@@ -33,6 +33,9 @@ class OnboardingData(BaseModel):
     partner_token: str | None = Field(default=None)
     instance_name: str | None = Field(default=None)
     database_backend: DatabaseBackendEnum | None = Field(default=None)
+    mailbox_address: str | None = Field(default=None)
+    pubsub_topic: str | None = Field(default=None)
+    pubsub_audience: str | None = Field(default=None)
 
 
 __all__ = ["OnboardingData"]

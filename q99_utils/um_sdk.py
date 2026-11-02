@@ -247,6 +247,12 @@ class UserManagerSDK:
             json={"service": service, "permissions": permissions},
         )
 
+    async def get_mailbox_file_permissions(self) -> list[str]:
+        """ACL tokens of the groups allowed to see the files ingested from the company mailbox."""
+        url = f"{USER_MANAGER_URL}/v1/mailbox/file-permissions/"
+        response = await self._request(method="GET", url=url)
+        return response["permissions"]
+
     async def create_activity_log(self, action: str, severity: Literal["info", "warning", "error"], description: str):
         url = f"{USER_MANAGER_URL}/v1/log/"
         return await self._request(

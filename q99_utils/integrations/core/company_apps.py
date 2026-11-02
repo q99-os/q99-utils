@@ -14,6 +14,7 @@ from q99_utils.enums.source import SourceEnum
 APP_SOURCE_BY_SOURCE = {
     SourceEnum.googledrive: SourceEnum.google_oauth_app,
     SourceEnum.gmail: SourceEnum.google_oauth_app,
+    SourceEnum.gmail_mailbox: SourceEnum.google_oauth_app,
     SourceEnum.outlook: SourceEnum.microsoft_oauth_app,
     SourceEnum.teams: SourceEnum.microsoft_oauth_app,
     SourceEnum.sharepoint: SourceEnum.microsoft_oauth_app,

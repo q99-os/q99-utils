@@ -4,6 +4,7 @@ from q99_utils.integrations.core.change_detection import classify_change, identi
 from q99_utils.integrations.core.company_apps import APP_SOURCE_BY_SOURCE, app_source_for
 from q99_utils.integrations.core.context import IntegrationConfig, IntegrationContext
 from q99_utils.integrations.core.google_oauth import translate_refresh_error
+from q99_utils.integrations.core.google_pubsub import verify_push_token
 from q99_utils.integrations.core.exceptions import (
     AppCredentialExpired,
     CredentialExpired,
@@ -33,6 +34,12 @@ from q99_utils.integrations.core.registry import (
     registered_sources,
 )
 from q99_utils.integrations.core.source import SourceIntegrationInterface
+from q99_utils.integrations.core.mailbox import (
+    PROCESSED_FOLDER,
+    MailAttachment,
+    MailboxIntegration,
+    MailMessage,
+)
 from q99_utils.integrations.core.sql_source import SqlIntegrationBase
 
 __all__ = [
@@ -41,6 +48,7 @@ __all__ = [
     "CredentialExpired",
     "app_source_for",
     "translate_refresh_error",
+    "verify_push_token",
     "CredentialValidationError",
     "DELEGATED_MAIL_SCOPES",
     "DELEGATED_TEAMS_SCOPES",
@@ -51,7 +59,11 @@ __all__ = [
     "IntegrationConfig",
     "IntegrationContext",
     "IntegrationError",
+    "MailAttachment",
+    "MailboxIntegration",
+    "MailMessage",
     "MicrosoftGraphAuth",
+    "PROCESSED_FOLDER",
     "ResourceNotFound",
     "SourceIntegrationInterface",
     "SqlIntegrationBase",
