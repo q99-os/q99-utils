@@ -14,6 +14,8 @@ from q99_utils.enums import SourceEnum
 from q99_utils.integrations.core import (
     GRAPH_BASE_URL,
     PROCESSED_FOLDER,
+    AccessDenied,
+    CredentialExpired,
     CredentialValidationError,
     MailAttachment,
     MailboxIntegration,
@@ -63,27 +65,33 @@ class OutlookMailboxIntegration(MicrosoftGraphAuth, MailboxIntegration):
         query = _query({"$filter": f"receivedDateTime ge {since}", "$select": "id,receivedDateTime"})
 
         messages = []
-        async for item in graph_paginate(access_token=token, url=f"{mailbox_url}/mailFolders/inbox/messages?{query}"):
-            attachments_query = _query({"$select": "id,name,contentType,size,isInline"})
-            attachments = await graph_request(
-                access_token=token, url=f"{mailbox_url}/messages/{item['id']}/attachments?{attachments_query}"
-            )
-            messages.append(MailMessage(
-                id=item["id"],
-                received_at=datetime.fromisoformat(item["receivedDateTime"]),
-                # Attached emails and cloud links have no bytes to ingest.
-                attachments=[
-                    MailAttachment(
-                        id=a["id"],
-                        name=a.get("name") or "",
-                        content_type=a.get("contentType") or "",
-                        size=a.get("size") or 0,
-                        is_inline=bool(a.get("isInline")),
-                    )
-                    for a in attachments.get("value") or []
-                    if a.get("@odata.type") == FILE_ATTACHMENT
-                ],
-            ))
+        try:
+            async for item in graph_paginate(access_token=token, url=f"{mailbox_url}/mailFolders/inbox/messages?{query}"):
+                attachments_query = _query({"$select": "id,name,contentType,size,isInline"})
+                attachments = await graph_request(
+                    access_token=token, url=f"{mailbox_url}/messages/{item['id']}/attachments?{attachments_query}"
+                )
+                messages.append(MailMessage(
+                    id=item["id"],
+                    received_at=datetime.fromisoformat(item["receivedDateTime"]),
+                    # Attached emails and cloud links have no bytes to ingest.
+                    attachments=[
+                        MailAttachment(
+                            id=a["id"],
+                            name=a.get("name") or "",
+                            content_type=a.get("contentType") or "",
+                            size=a.get("size") or 0,
+                            is_inline=bool(a.get("isInline")),
+                        )
+                        for a in attachments.get("value") or []
+                        if a.get("@odata.type") == FILE_ATTACHMENT
+                    ],
+                ))
+        except AccessDenied as exc:
+            # The app still gets a token but may no longer read the mailbox: only the admin can fix it.
+            raise CredentialExpired(
+                f"The app can no longer read {data.mailbox_address}: {exc}", source=str(self.source)
+            ) from exc
         return messages
 
     async def download_attachment(self, message_id: str, attachment_id: str, data: OnboardingData) -> bytes:

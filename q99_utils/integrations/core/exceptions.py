@@ -41,6 +41,15 @@ class ResourceNotFound(IntegrationError):
         return self.message
 
 
+class AccessDenied(IntegrationError):
+    """The provider refused this resource to a token it issued (401/403).
+
+    Not a CredentialExpired: for most sources it means one file or site is off-limits.
+    Only a caller that knows the resource is the whole point of the credential can say
+    the credential is dead.
+    """
+
+
 class CredentialExpired(IntegrationError):
     """The refresh token is dead. Never worth retrying: only its owner can fix it."""
 
@@ -73,6 +82,7 @@ class AppCredentialExpired(IntegrationError):
 
 __all__ = [
     "IntegrationError",
+    "AccessDenied",
     "CredentialValidationError",
     "AppCredentialExpired",
     "CredentialExpired",

@@ -10,7 +10,14 @@ import httpx
 import pytest
 
 from q99_utils.enums import SourceEnum
-from q99_utils.integrations.core import CredentialValidationError, get_integration_class
+from q99_utils.integrations.core import (
+    AccessDenied,
+    CredentialExpired,
+    CredentialValidationError,
+    IntegrationError,
+    get_integration_class,
+    graph_request,
+)
 from q99_utils.integrations.sources.outlook_mailbox import OutlookMailboxIntegration
 from q99_utils.models import OnboardingData
 
@@ -146,6 +153,27 @@ async def test_outlook_lists_inbox_since_and_keeps_file_attachments(monkeypatch,
     assert [(a.id, a.name, a.is_inline) for a in messages[0].attachments] == [
         ("a1", "report.pdf", False), ("a2", "logo.png", True),
     ]
+
+
+@pytest.mark.parametrize("status", [401, 403])
+async def test_outlook_mailbox_access_revoked_is_an_expired_credential(monkeypatch, integration, credentials, status):
+    # The token still comes back; only the mailbox refuses (consent removed, access policy changed).
+    _patch_transport(monkeypatch, responses=[(status, {"error": {"code": "ErrorAccessDenied"}})])
+
+    with pytest.raises(CredentialExpired) as raised:
+        await integration.list_inbox_messages(credentials, datetime(2026, 10, 29, tzinfo=timezone.utc))
+
+    assert raised.value.source == str(SourceEnum.outlook_mailbox)
+
+
+async def test_graph_access_denied_is_still_an_integration_error(monkeypatch):
+    _patch_transport(monkeypatch, responses=[(403, {})])
+
+    with pytest.raises(AccessDenied) as raised:
+        await graph_request(access_token="tok", url="https://graph.microsoft.com/v1.0/sites/s1")
+
+    assert isinstance(raised.value, IntegrationError)
+    assert "failed with 403" in str(raised.value)
 
 
 async def test_outlook_download_decodes_content_bytes(monkeypatch, integration, credentials):

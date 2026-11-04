@@ -253,6 +253,13 @@ class UserManagerSDK:
         response = await self._request(method="GET", url=url)
         return response["permissions"]
 
+    async def notify_mailbox_unmatched(self, credential_id: str, files: list[str]) -> dict:
+        """Tell the mailbox's staff that these files fit no smart structure."""
+        url = f"{USER_MANAGER_URL}/v1/mailbox/unmatched-files/"
+        return await self._request(
+            method="POST", url=url, json={"credential_id": credential_id, "files": files}
+        )
+
     async def create_activity_log(self, action: str, severity: Literal["info", "warning", "error"], description: str):
         url = f"{USER_MANAGER_URL}/v1/log/"
         return await self._request(

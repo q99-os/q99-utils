@@ -12,6 +12,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Dict, Optional
 import httpx
 
 from q99_utils.integrations.core.exceptions import (
+    AccessDenied,
     AppCredentialExpired,
     CredentialExpired,
     IntegrationError,
@@ -159,8 +160,9 @@ async def graph_request(
 ) -> Dict[str, Any]:
     """One Graph call, with the failures callers actually branch on.
 
-    Raises :class:`ResourceNotFound` on 404 and :class:`IntegrationError` on
-    anything else, so hosts never have to parse status codes out of a message.
+    Raises :class:`ResourceNotFound` on 404, :class:`AccessDenied` on 401/403 and
+    :class:`IntegrationError` on anything else, so hosts never have to parse status
+    codes out of a message.
     """
     headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
     if json is not None:
@@ -172,7 +174,8 @@ async def graph_request(
     if response.status_code == 404:
         raise ResourceNotFound(f"Microsoft Graph has no resource at {url}")
     if response.status_code >= 400:
-        raise IntegrationError(
+        error = AccessDenied if response.status_code in (401, 403) else IntegrationError
+        raise error(
             f"Microsoft Graph {method} failed with {response.status_code}: {response.text[:300]}"
         )
     if response.status_code == 204 or not response.content:

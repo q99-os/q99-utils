@@ -6,6 +6,7 @@ from q99_utils.integrations.core.context import IntegrationConfig, IntegrationCo
 from q99_utils.integrations.core.google_oauth import translate_refresh_error
 from q99_utils.integrations.core.google_pubsub import verify_push_token
 from q99_utils.integrations.core.exceptions import (
+    AccessDenied,
     AppCredentialExpired,
     CredentialExpired,
     CredentialValidationError,
@@ -44,6 +45,7 @@ from q99_utils.integrations.core.sql_source import SqlIntegrationBase
 
 __all__ = [
     "APP_SOURCE_BY_SOURCE",
+    "AccessDenied",
     "AppCredentialExpired",
     "CredentialExpired",
     "app_source_for",
