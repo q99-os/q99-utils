@@ -125,7 +125,9 @@ async def test_test_connection_explains_a_refused_mailbox(monkeypatch, integrati
     with pytest.raises(CredentialValidationError) as refused:
         await integration.test_connection(credentials)
 
-    assert "Mail.ReadWrite" in str(refused.value)
+    message = str(refused.value)
+    assert "Microsoft Service" in message and "Mail.ReadWrite" in message and "Access Policy" in message
+    assert "tenant_id" not in message  # the admin no longer types the app's keys
 
 
 # Reading the inbox

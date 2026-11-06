@@ -1,6 +1,6 @@
 """Outlook mailbox integration — the dedicated company inbox whose attachments are ingested.
 
-App-only, through an app registration the client restricts to that one mailbox.
+App-only, through the company Microsoft app, which the client restricts to that one mailbox.
 """
 
 from __future__ import annotations
@@ -50,9 +50,9 @@ class OutlookMailboxIntegration(MicrosoftGraphAuth, MailboxIntegration):
             )
         except Exception as exc:
             raise CredentialValidationError(
-                f"Could not open the inbox of {data.mailbox_address}. Check tenant_id, client_id and "
-                "client_secret, and that the app has the Mail.ReadWrite application permission "
-                "(admin-consented) for that mailbox.",
+                f"Could not open the inbox of {data.mailbox_address}. Check the address, that the "
+                "Microsoft Service app has the Mail.ReadWrite application permission with admin "
+                "consent, and that its Application Access Policy includes this mailbox.",
                 source=str(self.source),
             ) from exc
 

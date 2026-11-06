@@ -111,6 +111,8 @@ def test_every_delegated_and_app_only_source_knows_its_app():
     assert str(app_source_for("gmail")) == "google_oauth_app"
     assert str(app_source_for("outlook")) == "microsoft_oauth_app"
     assert str(app_source_for("sharepoint")) == "microsoft_oauth_app"
+    assert str(app_source_for("gmail_mailbox")) == "google_oauth_app"
+    assert str(app_source_for("outlook_mailbox")) == "microsoft_oauth_app"
 
 
 def test_a_source_that_brings_its_own_credentials_has_no_app():
