@@ -10,6 +10,7 @@ from q99_utils.integrations.sources.databricks import DatabricksIntegration
 from q99_utils.integrations.sources.gmail import GmailIntegration
 from q99_utils.integrations.sources.gmail_mailbox import GmailMailboxIntegration
 from q99_utils.integrations.sources.fracttal import FracttalIntegration
+from q99_utils.integrations.sources.mirico import MiricoIntegration
 from q99_utils.integrations.sources.google_sso import GoogleSsoIntegration
 from q99_utils.integrations.sources.greenapi import GreenAPIIntegration
 from q99_utils.integrations.sources.local_files import LocalFilesIntegration
@@ -42,6 +43,7 @@ __all__ = [
     "GmailIntegration",
     "GmailMailboxIntegration",
     "FracttalIntegration",
+    "MiricoIntegration",
     "GoogleDriveIntegration",
     "GoogleSsoIntegration",
     "GreenAPIIntegration",
