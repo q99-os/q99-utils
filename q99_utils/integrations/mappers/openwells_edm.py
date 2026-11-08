@@ -308,7 +308,9 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 dpd.nominal_size,
                 dpr.run_length,
                 ca.hole_size,
-                dpr.event_id
+                dpr.event_id,
+                dpr.assembly_id,
+                ca.assembly_name
             FROM DM_PIPE_RUN AS dpr
             RIGHT JOIN DM_PIPE_DATA AS dpd
                 ON dpr.assembly_id = dpd.assembly_id
@@ -319,6 +321,88 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 AND dpr.run_tally_type = 'RUN'
                 AND ca.string_type = 'Casing'
             ORDER BY dpr.date_report
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_casing_runs(self, well_id: str) -> list[dict]:
+        """How each casing string went in: in hole, on bottom and landed, hours circulated, the maximum hole
+        angle (degrees), fluid lost while running (bbl) and the casing crew, as entered."""
+        sql = """
+            SELECT
+                assembly_id,
+                event_id,
+                run_number,
+                date_in_hole,
+                date_on_bottom,
+                date_landed,
+                hours_circulated,
+                max_hole_angle,
+                fluid_lost_vol,
+                contractor
+            FROM DM_CASING
+            WHERE well_id = ?
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_logs(self, well_id: str) -> list[dict]:
+        """Wireline logging jobs: type, reason, contractor and engineer, start and end, hours logging, length
+        logged (ft) and the hours lost waiting for the unit, to electronics or for other reasons."""
+        sql = """
+            SELECT
+                log_id,
+                event_id,
+                job_type,
+                reason,
+                contractor,
+                engineer,
+                start_date,
+                end_date,
+                total_logging_time,
+                total_logged,
+                lost_time_late_arrival,
+                lost_time_electronic,
+                lost_time_wot
+            FROM DM_LOG
+            WHERE well_id = ?
+            ORDER BY start_date
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_log_runs(self, well_id: str) -> list[dict]:
+        """Each logging job's runs: tool string, interval (feet from the well's datum), length logged (ft),
+        rig-up to rig-down times, hours and hours lost, and the crew's comment."""
+        sql = """
+            SELECT
+                log_id,
+                run_number,
+                service,
+                md_top,
+                md_base,
+                interval_logged,
+                rig_up,
+                run_in,
+                sonde_up,
+                rig_down,
+                total_time,
+                log_lost,
+                bh_temp,
+                comments
+            FROM DM_LOG_INTERVAL
+            WHERE well_id = ?
+            ORDER BY log_id, run_number
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_log_services(self, well_id: str) -> list[dict]:
+        """The measurements each logging job ran (GR, CBL, VDL…) and the company that ran them."""
+        sql = """
+            SELECT
+                log_id,
+                code,
+                description,
+                company
+            FROM DM_LOG_SERVICE
+            WHERE well_id = ?
         """
         return await self._driver.query(sql=self._compile(sql), params=(well_id,))
 
@@ -537,10 +621,93 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 pipe_movement_desc,
                 cement_job_note,
                 assembly_id,
-                event_id
+                event_id,
+                cement_job_id
             FROM CD_CEMENT_JOB
             WHERE well_id = ?
             ORDER BY job_start_date ASC
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_cement_stages(self, well_id: str) -> list[dict]:
+        """Each cement job's stages: the interval cemented, the circulation before it, the plug and the returns.
+        Depths in feet from the well's datum, rates as entered (gpm), pressures psi, WOC hours."""
+        sql = """
+            SELECT
+                cement_job_id,
+                stage_no,
+                stage_type,
+                md_top,
+                md_base,
+                tvd_top,
+                tvd_base,
+                hole_size,
+                circ_duration_before,
+                circ_flowrate,
+                circ_press,
+                casing_pressure_initial,
+                casing_pressure_final,
+                primary_pressure_prior_bump,
+                primary_pressure_bump,
+                is_top_plug_used,
+                is_plug_bumped,
+                is_primary_float_held,
+                returns,
+                primary_volume_returns,
+                woc_time
+            FROM CD_CEMENT_STAGE
+            WHERE well_id = ?
+            ORDER BY cement_job_id, stage_no
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_cement_fluids(self, well_id: str) -> list[dict]:
+        """Each cement job's fluids in pumping order: spacers, slurries and displacement, with density (ppg),
+        yield (ft3/sk), volume (bbl), sacks, excess (%), rheology and the TVD interval each slurry covers (feet
+        from the well's datum)."""
+        sql = """
+            SELECT
+                cement_job_id,
+                cement_fluid_id,
+                sequence_no,
+                fluid_name,
+                fluid_type,
+                slurry_purpose,
+                slurry_class,
+                slurry_density,
+                density,
+                slurry_yield,
+                mix_water_ratio,
+                vol_slurry,
+                sacks_used,
+                excess_slurry_percent,
+                pv,
+                yp,
+                gels_10_sec,
+                gels_10_min,
+                slurry_top_tvd,
+                slurry_base_tvd
+            FROM CD_CEMENT_FLUID
+            WHERE well_id = ?
+            ORDER BY cement_job_id, sequence_no
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_cement_additives(self, well_id: str) -> list[dict]:
+        """The additives of each cement fluid: name, type, concentration and amount, in the units entered."""
+        sql = """
+            SELECT
+                cement_fluid_id,
+                sequence_no,
+                additive_name,
+                additive_type,
+                conc_additive,
+                conc_unit_additive,
+                additive_amount,
+                additive_unit
+            FROM CD_CEMENT_FLUID_ADD
+            WHERE well_id = ?
+            ORDER BY cement_fluid_id, sequence_no
         """
         return await self._driver.query(sql=self._compile(sql), params=(well_id,))
 
