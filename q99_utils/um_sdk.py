@@ -159,7 +159,7 @@ class UserManagerSDK:
         return await self._request(method="GET", url=conversation_url)
         
     async def get_branch_history(self, interaction_id: str):
-        interaction_url = f"{USER_MANAGER_URL}/v1/history/conversation/{interaction_id}/branch/"
+        interaction_url = f"{USER_MANAGER_URL}/v1/history/conversation/{interaction_id}/context/"
 
         return await self._request(method="GET", url=interaction_url)
     

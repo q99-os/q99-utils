@@ -1,6 +1,6 @@
 [project]
 name = "q99-utils"
-version = "0.5.1"
+version = "0.5.2"
 description = "Library of common q99 services"
 readme = "README.md"
 authors = [{ name = "Q99" }]
