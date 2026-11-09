@@ -397,12 +397,13 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
         """The measurements each logging job ran (GR, CBL, VDL…) and the company that ran them."""
         sql = """
             SELECT
-                log_id,
-                code,
-                description,
-                company
-            FROM DM_LOG_SERVICE
-            WHERE well_id = ?
+                ls.log_id,
+                ls.code,
+                (SELECT MIN(lt.descripter) FROM PK.PK_LOGTYPE AS lt WHERE lt.log = ls.code) AS code_name,
+                ls.description,
+                ls.company
+            FROM DM_LOG_SERVICE AS ls
+            WHERE ls.well_id = ?
         """
         return await self._driver.query(sql=self._compile(sql), params=(well_id,))
 
@@ -516,6 +517,8 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 dbr.date_out,
                 ca.length_total AS bha_length,
                 CONCAT(cbcb.iadc_inner,'-',cbcb.iadc_outer,'-',cbcb.iadc_dull,'-',cbcb.iadc_location,'-',cbcb.iadc_bearing,'-',cbcb.iadc_gauge,'-',cbcb.iadc_other,'-',cbcb.iadc_reason_pulled) AS dull_grading,
+                cbcb.iadc_reason_pulled AS reason_pulled,
+                (SELECT MIN(r.reason) FROM PK.PK_REASON AS r WHERE r.reascode = cbcb.iadc_reason_pulled) AS reason_pulled_name,
                 dbr.daily_sliding_footage,
                 dbr.daily_rotating_footage,
                 dbr.daily_sliding_hours,
@@ -720,6 +723,13 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
         the event, not an invoice. Where no day rate was entered the cost is
         zero, so a zero next to hours means "not valued", not "free".
 
+        Each ``*_name`` is the code's name in the operator's picklist (the ``PK``
+        schema), null when the picklist doesn't have the code. The detail is named only
+        under its own cause: a detail code filed under another cause names
+        something else in the picklist. ``npt_desc_cause_code`` is the cause the
+        picklist files the detail under, the event's own when it is one of them, null when
+        the picklist doesn't have the code.
+
         Placement is the caller's: ``first_activity_id`` points at the activity
         the event began on. Resolving it here means joining the activity log and
         carrying an ntext description through that join, which costs ~25 s a well
@@ -734,7 +744,18 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 ef.failure_duration,
                 ef.failure_depth,
                 ef.npt_cause_code,
+                (SELECT MIN(c.code_desc) FROM PK.PK_NPT_CAUSE AS c WHERE c.code = ef.npt_cause_code) AS npt_cause_name,
                 ef.npt_desc_code,
+                (SELECT MIN(d.code_desc) FROM PK.PK_NPT_DESC AS d
+                    WHERE d.code = ef.npt_desc_code AND d.code_parent_code = ef.npt_cause_code) AS npt_desc_name,
+                (SELECT TOP 1 d.code_parent_code FROM PK.PK_NPT_DESC AS d WHERE d.code = ef.npt_desc_code
+                    ORDER BY CASE WHEN d.code_parent_code = ef.npt_cause_code THEN 0 ELSE 1 END, d.code_parent_code) AS npt_desc_cause_code,
+                ef.npt_duration_type,
+                (SELECT MIN(t.code_desc) FROM PK.PK_NPT AS t WHERE t.code = ef.npt_duration_type) AS npt_duration_type_name,
+                ef.failure_type,
+                (SELECT MIN(f.code_desc) FROM PK.PK_EQUIP_FAILURE_TYPE AS f WHERE f.code = ef.failure_type) AS failure_type_name,
+                ef.failure_location,
+                (SELECT MIN(l.code_desc) FROM PK.PK_NPT_LOCATION AS l WHERE l.code = ef.failure_location) AS failure_location_name,
                 ef.npt_operation_type,
                 CASE
                     WHEN ef.date_failure_start IS NOT NULL
