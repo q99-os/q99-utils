@@ -88,7 +88,7 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 well_uwi, well_uwi_type, api_no, site_id, completion_well_id,
                 field_name, field_number, well_operator, well_operator_original, target_formation,
                 loc_country, loc_state, loc_county,
-                geo_latitude, geo_longitude, datum_name,
+                geo_latitude, geo_longitude, geo_offset_east, geo_offset_north, datum_name,
                 is_offshore, is_platform, is_subsea, is_multilateral, is_lake_drilled,
                 lake_height, well_geometry, wellhead_depth, water_depth,
                 spud_date, conductor_install_date, regulatory_spud_date, regulatory_install_date,
