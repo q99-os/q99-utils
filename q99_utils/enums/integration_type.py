@@ -17,6 +17,7 @@ class IntegrationTypeEnum(StrEnum):
     external_api = "external_api"
     sso = "sso"
     oauth_app = "oauth_app"
+    mailbox = "mailbox"
 
 
 __all__ = ["IntegrationTypeEnum"]
