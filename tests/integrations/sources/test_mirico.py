@@ -8,7 +8,7 @@ import pytest
 from q99_utils.enums import SourceEnum
 from q99_utils.integrations.core.exceptions import CredentialValidationError, IntegrationError
 from q99_utils.integrations.core.registry import get_integration_class
-from q99_utils.integrations.sources.mirico import MiricoIntegration, STAGING_API_BASE
+from q99_utils.integrations.sources.mirico import DEFAULT_API_BASE, MiricoIntegration, STAGING_API_BASE
 from q99_utils.models import OnboardingData
 
 
@@ -50,10 +50,23 @@ async def test_authorized_probe_and_read(install, integration, credentials):
     await integration.test_connection(credentials)
     assert await integration.list_deployments(credentials) == [{"id": 17, "fk_site_uuid": "site-1"}]
     assert [str(req.url) for req in requests] == [
-        f"{STAGING_API_BASE}/deployments/sites",
-        f"{STAGING_API_BASE}/deployments/",
+        f"{DEFAULT_API_BASE}/deployments/sites",
+        f"{DEFAULT_API_BASE}/deployments/",
     ]
     assert all(req.headers["Authorization"] == "Bearer test-key" for req in requests)
+
+
+async def test_staging_endpoint_can_be_set_internally(install, integration, credentials):
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json=[])
+
+    install(handler)
+    credentials.api_base = STAGING_API_BASE
+    await integration.test_connection(credentials)
+    assert str(requests[0].url) == f"{STAGING_API_BASE}/deployments/sites"
 
 
 async def test_rejected_key_is_safe(install, integration, credentials):

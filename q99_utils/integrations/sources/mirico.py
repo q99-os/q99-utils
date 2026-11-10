@@ -1,7 +1,7 @@
 """Read-only client for Mirico's Analysis Engine API.
 
-The published staging OpenAPI document specifies HTTP bearer authentication and
-an ``/engine-api`` server prefix. An API key is required for every data request.
+Mirico's production and staging APIs use HTTP bearer authentication and an
+``/engine-api`` server prefix. An API key is required for every data request.
 """
 
 from __future__ import annotations
@@ -17,12 +17,13 @@ from q99_utils.integrations.core.source import SourceIntegrationInterface
 from q99_utils.models import OnboardingData
 
 
+DEFAULT_API_BASE = "https://api.mirico.com/engine-api"
 STAGING_API_BASE = "https://api.mirico.dev/engine-api"
 TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 
 
 def _api_base(value: str | None) -> str:
-    base = (value or STAGING_API_BASE).strip().rstrip("/")
+    base = (value or DEFAULT_API_BASE).strip().rstrip("/")
     parsed = urlsplit(base)
     if (
         parsed.scheme != "https"
@@ -74,7 +75,7 @@ class MiricoIntegration(SourceIntegrationInterface):
             raise
         except (httpx.HTTPError, IntegrationError):
             raise CredentialValidationError(
-                "Mirico connection test failed. Check the API Base and access to sites.",
+                "Mirico connection test failed. Check your API key and site access or contact support.",
                 source="mirico",
             ) from None
 
@@ -85,4 +86,4 @@ class MiricoIntegration(SourceIntegrationInterface):
         return await self._get("/deployments/", data=data)
 
 
-__all__ = ["MiricoIntegration", "STAGING_API_BASE"]
+__all__ = ["MiricoIntegration", "DEFAULT_API_BASE", "STAGING_API_BASE"]
