@@ -60,10 +60,10 @@ def _timestamp(value: datetime | str) -> datetime:
         raise ValueError("Mirico time values must be ISO 8601 timestamps.") from None
 
 
-def _utc_text(value: datetime) -> str:
-    if value.tzinfo is not None:
-        value = value.astimezone(timezone.utc).replace(tzinfo=None)
-    return value.isoformat()
+def _naive_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _window(start: datetime | str, end: datetime | str, *, raw: bool = False) -> dict[str, str]:
@@ -71,11 +71,13 @@ def _window(start: datetime | str, end: datetime | str, *, raw: bool = False) ->
     last = _timestamp(end)
     if (first.tzinfo is None) != (last.tzinfo is None):
         raise ValueError("Mirico time values must use the same timezone convention.")
+    first = _naive_utc(first)
+    last = _naive_utc(last)
     if last <= first:
         raise ValueError("Mirico end time must be after start time.")
     if raw:
-        return {"datetime_from": _utc_text(first), "datetime_to": _utc_text(last)}
-    return {"start_time": _utc_text(first), "end_time": _utc_text(last)}
+        return {"datetime_from": first.isoformat(), "datetime_to": last.isoformat()}
+    return {"start_time": first.isoformat(), "end_time": last.isoformat()}
 
 
 @register(SourceEnum.mirico)

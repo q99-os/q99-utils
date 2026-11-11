@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -142,6 +143,24 @@ async def test_windows_reach_mirico_as_naive_utc(install, integration, credentia
     await integration.get_tse_daily_aggregate(33, start, end, credentials)
     assert (requests[0].url.params["datetime_from"], requests[0].url.params["datetime_to"]) == sent
     assert (requests[1].url.params["start_time"], requests[1].url.params["end_time"]) == sent
+
+
+async def test_window_order_follows_the_utc_instant(install, integration, credentials):
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json=[])
+
+    install(handler)
+    new_york = ZoneInfo("America/New_York")
+    start = datetime(2026, 11, 1, 1, 45, tzinfo=new_york)
+    end = datetime(2026, 11, 1, 1, 15, fold=1, tzinfo=new_york)
+    await integration.get_tse(33, start, end, credentials)
+    assert requests[0].url.params["start_time"] == "2026-11-01T05:45:00"
+    assert requests[0].url.params["end_time"] == "2026-11-01T06:15:00"
+    with pytest.raises(ValueError, match="after start"):
+        await integration.get_tse(33, end, start, credentials)
 
 
 @pytest.mark.parametrize("method,path,response", [
