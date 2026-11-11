@@ -6,7 +6,7 @@ Mirico's production and staging APIs use HTTP bearer authentication and an
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Literal, Mapping
 from urllib.parse import urlsplit
 
@@ -49,27 +49,33 @@ def _deployment_path(deployment_id: int, suffix: str = "") -> str:
     return f"/deployments/{deployment_id}{suffix}"
 
 
-def _timestamp(value: datetime | str) -> tuple[datetime, str]:
+def _timestamp(value: datetime | str) -> datetime:
     if isinstance(value, datetime):
-        return value, value.isoformat()
+        return value
     if not isinstance(value, str):
         raise ValueError("Mirico time values must be datetimes or ISO 8601 strings.")
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")), value
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         raise ValueError("Mirico time values must be ISO 8601 timestamps.") from None
 
 
+def _utc_text(value: datetime) -> str:
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value.isoformat()
+
+
 def _window(start: datetime | str, end: datetime | str, *, raw: bool = False) -> dict[str, str]:
-    first, start_text = _timestamp(start)
-    last, end_text = _timestamp(end)
+    first = _timestamp(start)
+    last = _timestamp(end)
     if (first.tzinfo is None) != (last.tzinfo is None):
         raise ValueError("Mirico time values must use the same timezone convention.")
     if last <= first:
         raise ValueError("Mirico end time must be after start time.")
     if raw:
-        return {"datetime_from": start_text, "datetime_to": end_text}
-    return {"start_time": start_text, "end_time": end_text}
+        return {"datetime_from": _utc_text(first), "datetime_to": _utc_text(last)}
+    return {"start_time": _utc_text(first), "end_time": _utc_text(last)}
 
 
 @register(SourceEnum.mirico)

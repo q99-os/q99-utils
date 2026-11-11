@@ -120,9 +120,28 @@ async def test_windowed_reads_use_provider_paths_and_parameters(
     request = requests[0]
     assert request.url.path == f"/engine-api/deployments/33{path}"
     names = ("datetime_from", "datetime_to") if raw else ("start_time", "end_time")
-    assert request.url.params[names[0]] == start.isoformat()
-    assert request.url.params[names[1]] == end.isoformat()
+    assert request.url.params[names[0]] == "2026-11-08T21:00:00"
+    assert request.url.params[names[1]] == "2026-11-09T00:00:00"
     assert request.headers["Authorization"] == "Bearer test-key"
+
+
+@pytest.mark.parametrize("start,end,sent", [
+    ("2026-11-08T18:00:00-03:00", "2026-11-08T19:00:00-03:00", ("2026-11-08T21:00:00", "2026-11-08T22:00:00")),
+    ("2026-11-08T21:00:00Z", "2026-11-08T22:00:00Z", ("2026-11-08T21:00:00", "2026-11-08T22:00:00")),
+    ("2026-11-08T21:00:00", "2026-11-08T22:00:00", ("2026-11-08T21:00:00", "2026-11-08T22:00:00")),
+])
+async def test_windows_reach_mirico_as_naive_utc(install, integration, credentials, start, end, sent):
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json=[])
+
+    install(handler)
+    await integration.get_raw_wind(33, start, end, credentials)
+    await integration.get_tse_daily_aggregate(33, start, end, credentials)
+    assert (requests[0].url.params["datetime_from"], requests[0].url.params["datetime_to"]) == sent
+    assert (requests[1].url.params["start_time"], requests[1].url.params["end_time"]) == sent
 
 
 @pytest.mark.parametrize("method,path,response", [
