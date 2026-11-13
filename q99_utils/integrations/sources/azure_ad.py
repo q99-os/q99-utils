@@ -31,6 +31,7 @@ GRAPH_USERS_URL = f"{GRAPH_BASE_URL}/users"
 GRAPH_SUBSCRIPTIONS_URL = f"{GRAPH_BASE_URL}/subscriptions"
 
 GROUP_SELECT = "$select=id,displayName"
+GROUP_LIST_SELECT = "$select=id,displayName,description,groupTypes,securityEnabled,mailEnabled"
 
 GROUP_ODATA_TYPE = "#microsoft.graph.group"
 
@@ -71,16 +72,24 @@ class AzureADIntegration(MicrosoftGraphAuth, SourceIntegrationInterface):
 
     # Groups
 
-    async def fetch_all_groups(self, data: Optional[OnboardingData] = None) -> List[Dict[str, str]]:
-        """Every group in the tenant as ``{id, displayName}``.
+    async def fetch_all_groups(self, data: Optional[OnboardingData] = None) -> List[Dict]:
+        """Every group in the tenant as ``{id, displayName, description, groupTypes,
+        securityEnabled, mailEnabled}``.
 
         The stable id is what lets the caller tell a rename from a new group.
         """
         token = await self.get_access_token(data)
         groups = [
-            {"id": g["id"], "displayName": g["displayName"]}
+            {
+                "id": g["id"],
+                "displayName": g["displayName"],
+                "description": g.get("description"),
+                "groupTypes": g.get("groupTypes") or [],
+                "securityEnabled": bool(g.get("securityEnabled")),
+                "mailEnabled": bool(g.get("mailEnabled")),
+            }
             async for g in graph_paginate(
-                access_token=token, url=f"{GRAPH_GROUPS_URL}?{GROUP_SELECT}"
+                access_token=token, url=f"{GRAPH_GROUPS_URL}?{GROUP_LIST_SELECT}"
             )
             if g.get("id") and g.get("displayName")
         ]

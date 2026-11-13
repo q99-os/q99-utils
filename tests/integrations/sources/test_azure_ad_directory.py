@@ -73,22 +73,43 @@ def credentials() -> OnboardingData:
 # Groups
 
 
-async def test_fetch_all_groups_returns_id_and_display_name(
+async def test_fetch_all_groups_returns_the_listing_fields(
     monkeypatch, integration, credentials
 ):
     _patch_transport(
         monkeypatch,
         pages=[
             (200, {"value": [
-                {"id": "g1", "displayName": "Engineers"},
+                {
+                    "id": "g1",
+                    "displayName": "Engineers",
+                    "description": "All engineers",
+                    "groupTypes": ["Unified"],
+                    "securityEnabled": False,
+                    "mailEnabled": True,
+                },
                 {"id": "g2", "displayName": "Admins"},
             ]}),
         ],
     )
 
     assert await integration.fetch_all_groups(credentials) == [
-        {"id": "g1", "displayName": "Engineers"},
-        {"id": "g2", "displayName": "Admins"},
+        {
+            "id": "g1",
+            "displayName": "Engineers",
+            "description": "All engineers",
+            "groupTypes": ["Unified"],
+            "securityEnabled": False,
+            "mailEnabled": True,
+        },
+        {
+            "id": "g2",
+            "displayName": "Admins",
+            "description": None,
+            "groupTypes": [],
+            "securityEnabled": False,
+            "mailEnabled": False,
+        },
     ]
 
 
@@ -124,9 +145,7 @@ async def test_fetch_all_groups_skips_entries_missing_a_field(
         ],
     )
 
-    assert await integration.fetch_all_groups(credentials) == [
-        {"id": "g1", "displayName": "Kept"}
-    ]
+    assert [g["id"] for g in await integration.fetch_all_groups(credentials)] == ["g1"]
 
 
 async def test_fetch_group_by_id_returns_the_group(monkeypatch, integration, credentials):
