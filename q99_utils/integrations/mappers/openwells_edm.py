@@ -88,7 +88,7 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 well_uwi, well_uwi_type, api_no, site_id, completion_well_id,
                 field_name, field_number, well_operator, well_operator_original, target_formation,
                 loc_country, loc_state, loc_county,
-                geo_latitude, geo_longitude, datum_name,
+                geo_latitude, geo_longitude, geo_offset_east, geo_offset_north, datum_name,
                 is_offshore, is_platform, is_subsea, is_multilateral, is_lake_drilled,
                 lake_height, well_geometry, wellhead_depth, water_depth,
                 spud_date, conductor_install_date, regulatory_spud_date, regulatory_install_date,
@@ -308,7 +308,9 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 dpd.nominal_size,
                 dpr.run_length,
                 ca.hole_size,
-                dpr.event_id
+                dpr.event_id,
+                dpr.assembly_id,
+                ca.assembly_name
             FROM DM_PIPE_RUN AS dpr
             RIGHT JOIN DM_PIPE_DATA AS dpd
                 ON dpr.assembly_id = dpd.assembly_id
@@ -319,6 +321,89 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 AND dpr.run_tally_type = 'RUN'
                 AND ca.string_type = 'Casing'
             ORDER BY dpr.date_report
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_casing_runs(self, well_id: str) -> list[dict]:
+        """How each casing string went in: in hole, on bottom and landed, hours circulated, the maximum hole
+        angle (degrees), fluid lost while running (bbl) and the casing crew, as entered."""
+        sql = """
+            SELECT
+                assembly_id,
+                event_id,
+                run_number,
+                date_in_hole,
+                date_on_bottom,
+                date_landed,
+                hours_circulated,
+                max_hole_angle,
+                fluid_lost_vol,
+                contractor
+            FROM DM_CASING
+            WHERE well_id = ?
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_logs(self, well_id: str) -> list[dict]:
+        """Wireline logging jobs: type, reason, contractor and engineer, start and end, hours logging, length
+        logged (ft) and the hours lost waiting for the unit, to electronics or for other reasons."""
+        sql = """
+            SELECT
+                log_id,
+                event_id,
+                job_type,
+                reason,
+                contractor,
+                engineer,
+                start_date,
+                end_date,
+                total_logging_time,
+                total_logged,
+                lost_time_late_arrival,
+                lost_time_electronic,
+                lost_time_wot
+            FROM DM_LOG
+            WHERE well_id = ?
+            ORDER BY start_date
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_log_runs(self, well_id: str) -> list[dict]:
+        """Each logging job's runs: tool string, interval (feet from the well's datum), length logged (ft),
+        rig-up to rig-down times, hours and hours lost, and the crew's comment."""
+        sql = """
+            SELECT
+                log_id,
+                run_number,
+                service,
+                md_top,
+                md_base,
+                interval_logged,
+                rig_up,
+                run_in,
+                sonde_up,
+                rig_down,
+                total_time,
+                log_lost,
+                bh_temp,
+                comments
+            FROM DM_LOG_INTERVAL
+            WHERE well_id = ?
+            ORDER BY log_id, run_number
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_log_services(self, well_id: str) -> list[dict]:
+        """The measurements each logging job ran (GR, CBL, VDL…) and the company that ran them."""
+        sql = """
+            SELECT
+                ls.log_id,
+                ls.code,
+                (SELECT MIN(lt.descripter) FROM PK.PK_LOGTYPE AS lt WHERE lt.log = ls.code) AS code_name,
+                ls.description,
+                ls.company
+            FROM DM_LOG_SERVICE AS ls
+            WHERE ls.well_id = ?
         """
         return await self._driver.query(sql=self._compile(sql), params=(well_id,))
 
@@ -432,6 +517,8 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 dbr.date_out,
                 ca.length_total AS bha_length,
                 CONCAT(cbcb.iadc_inner,'-',cbcb.iadc_outer,'-',cbcb.iadc_dull,'-',cbcb.iadc_location,'-',cbcb.iadc_bearing,'-',cbcb.iadc_gauge,'-',cbcb.iadc_other,'-',cbcb.iadc_reason_pulled) AS dull_grading,
+                cbcb.iadc_reason_pulled AS reason_pulled,
+                (SELECT MIN(r.reason) FROM PK.PK_REASON AS r WHERE r.reascode = cbcb.iadc_reason_pulled) AS reason_pulled_name,
                 dbr.daily_sliding_footage,
                 dbr.daily_rotating_footage,
                 dbr.daily_sliding_hours,
@@ -537,10 +624,93 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 pipe_movement_desc,
                 cement_job_note,
                 assembly_id,
-                event_id
+                event_id,
+                cement_job_id
             FROM CD_CEMENT_JOB
             WHERE well_id = ?
             ORDER BY job_start_date ASC
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_cement_stages(self, well_id: str) -> list[dict]:
+        """Each cement job's stages: the interval cemented, the circulation before it, the plug and the returns.
+        Depths in feet from the well's datum, rates as entered (gpm), pressures psi, WOC hours."""
+        sql = """
+            SELECT
+                cement_job_id,
+                stage_no,
+                stage_type,
+                md_top,
+                md_base,
+                tvd_top,
+                tvd_base,
+                hole_size,
+                circ_duration_before,
+                circ_flowrate,
+                circ_press,
+                casing_pressure_initial,
+                casing_pressure_final,
+                primary_pressure_prior_bump,
+                primary_pressure_bump,
+                is_top_plug_used,
+                is_plug_bumped,
+                is_primary_float_held,
+                returns,
+                primary_volume_returns,
+                woc_time
+            FROM CD_CEMENT_STAGE
+            WHERE well_id = ?
+            ORDER BY cement_job_id, stage_no
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_cement_fluids(self, well_id: str) -> list[dict]:
+        """Each cement job's fluids in pumping order: spacers, slurries and displacement, with density (ppg),
+        yield (ft3/sk), volume (bbl), sacks, excess (%), rheology and the TVD interval each slurry covers (feet
+        from the well's datum)."""
+        sql = """
+            SELECT
+                cement_job_id,
+                cement_fluid_id,
+                sequence_no,
+                fluid_name,
+                fluid_type,
+                slurry_purpose,
+                slurry_class,
+                slurry_density,
+                density,
+                slurry_yield,
+                mix_water_ratio,
+                vol_slurry,
+                sacks_used,
+                excess_slurry_percent,
+                pv,
+                yp,
+                gels_10_sec,
+                gels_10_min,
+                slurry_top_tvd,
+                slurry_base_tvd
+            FROM CD_CEMENT_FLUID
+            WHERE well_id = ?
+            ORDER BY cement_job_id, sequence_no
+        """
+        return await self._driver.query(sql=self._compile(sql), params=(well_id,))
+
+    async def fetch_cement_additives(self, well_id: str) -> list[dict]:
+        """The additives of each cement fluid: name, type, concentration and amount, in the units entered."""
+        sql = """
+            SELECT
+                cement_fluid_id,
+                sequence_no,
+                additive_name,
+                additive_type,
+                conc_additive,
+                conc_unit_additive,
+                additive_amount,
+                additive_unit
+            FROM CD_CEMENT_FLUID_ADD
+            WHERE well_id = ?
+            ORDER BY cement_fluid_id, sequence_no
         """
         return await self._driver.query(sql=self._compile(sql), params=(well_id,))
 
@@ -552,6 +722,13 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
         times ``failure_day_cost`` / 24: an estimate at the day rate entered on
         the event, not an invoice. Where no day rate was entered the cost is
         zero, so a zero next to hours means "not valued", not "free".
+
+        Each ``*_name`` is the code's name in the operator's picklist (the ``PK``
+        schema), null when the picklist doesn't have the code. The detail is named only
+        under its own cause: a detail code filed under another cause names
+        something else in the picklist. ``npt_desc_cause_code`` is the cause the
+        picklist files the detail under, the event's own when it is one of them, null when
+        the picklist doesn't have the code.
 
         Placement is the caller's: ``first_activity_id`` points at the activity
         the event began on. Resolving it here means joining the activity log and
@@ -567,7 +744,18 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
                 ef.failure_duration,
                 ef.failure_depth,
                 ef.npt_cause_code,
+                (SELECT MIN(c.code_desc) FROM PK.PK_NPT_CAUSE AS c WHERE c.code = ef.npt_cause_code) AS npt_cause_name,
                 ef.npt_desc_code,
+                (SELECT MIN(d.code_desc) FROM PK.PK_NPT_DESC AS d
+                    WHERE d.code = ef.npt_desc_code AND d.code_parent_code = ef.npt_cause_code) AS npt_desc_name,
+                (SELECT TOP 1 d.code_parent_code FROM PK.PK_NPT_DESC AS d WHERE d.code = ef.npt_desc_code
+                    ORDER BY CASE WHEN d.code_parent_code = ef.npt_cause_code THEN 0 ELSE 1 END, d.code_parent_code) AS npt_desc_cause_code,
+                ef.npt_duration_type,
+                (SELECT MIN(t.code_desc) FROM PK.PK_NPT AS t WHERE t.code = ef.npt_duration_type) AS npt_duration_type_name,
+                ef.failure_type,
+                (SELECT MIN(f.code_desc) FROM PK.PK_EQUIP_FAILURE_TYPE AS f WHERE f.code = ef.failure_type) AS failure_type_name,
+                ef.failure_location,
+                (SELECT MIN(l.code_desc) FROM PK.PK_NPT_LOCATION AS l WHERE l.code = ef.failure_location) AS failure_location_name,
                 ef.npt_operation_type,
                 CASE
                     WHEN ef.date_failure_start IS NOT NULL

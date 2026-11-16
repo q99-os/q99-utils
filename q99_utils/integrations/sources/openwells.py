@@ -24,19 +24,39 @@ OPENWELLS_KNOWN_TABLES = [
     "DM_WELL_PLAN_T",
     "DM_WELL_PLAN_OP",
     "DM_REPORT_JOURNAL",
+    "DM_DAILY",
+    # Rigs
+    "DM_RIG_OPERATION",
+    "DM_RIG_OPERATION_EVENT_LINK",
+    "CD_RIG",
     # BHA & pipe
     "DM_BHA_RUN",
     "DM_PIPE_RUN",
     "DM_PIPE_DATA",
+    "DM_BIT_OP",
+    "DM_CASING",
     # Fluids & mud
     "CD_FLUID",
     "DM_MUD_PRODUCT",
     "DM_MUD_VOLUME",
+    "DM_FLUID_LOSS",
     # Cement
     "CD_CEMENT_JOB",
+    "CD_CEMENT_STAGE",
+    "CD_CEMENT_FLUID",
+    "CD_CEMENT_FLUID_SCHEDULE",
+    "CD_CEMENT_FLUID_ADD",
+    # Wireline logging
+    "DM_LOG",
+    "DM_LOG_INTERVAL",
+    "DM_LOG_SERVICE",
+    # Geology
+    "CD_WELLBORE_FORMATION",
     # Surveys
     "CD_DEFINITIVE_SURVEY_HEADER",
     "CD_DEFINITIVE_SURVEY_STATION",
+    "CD_SURVEY_HEADER",
+    "CD_SURVEY_STATION",
     # Solids control
     "DM_HYDROCLONE_OP",
     "DM_CENTRIFUGE_OP",
@@ -44,6 +64,9 @@ OPENWELLS_KNOWN_TABLES = [
     "DM_OPER_EQUIP_FAIL",
     # Costs
     "DM_DAILYCOST",
+    "DM_AFE",
+    "DM_AFE_COST",
+    "DM_AFE_EVENT_LINK",
 ]
 
 
