@@ -65,6 +65,7 @@ async def test_connection_failure_is_sanitized(install, response):
     with pytest.raises(CredentialValidationError) as error:
         await integration.test_connection(data)
     assert "secret" not in str(error.value)
+    assert str(error.value).startswith("Datawell ")
 
 
 async def test_missing_credentials_do_not_call_api(install):
@@ -73,7 +74,7 @@ async def test_missing_credentials_do_not_call_api(install):
     integration = WellprodIntegration(source=SourceEnum.wellprod, um_sdk=AsyncMock())
     data = OnboardingData(source=SourceEnum.wellprod, integration_type="external_api", api_base="https://example.com/wp-rest", username="", password="")
 
-    with pytest.raises(CredentialValidationError):
+    with pytest.raises(CredentialValidationError, match="^Wellprod "):
         await integration.test_connection(data)
     assert requests == []
 
@@ -85,7 +86,7 @@ async def test_invalid_api_base_does_not_call_api(install, bad_url):
     integration = DatawellIntegration(source=SourceEnum.datawell, um_sdk=AsyncMock())
     data = OnboardingData(source=SourceEnum.datawell, integration_type="external_api", api_base=bad_url, username="reader", password="secret")
 
-    with pytest.raises(CredentialValidationError):
+    with pytest.raises(CredentialValidationError, match="^Datawell "):
         await integration.test_connection(data)
     assert requests == []
 
