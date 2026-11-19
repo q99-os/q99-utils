@@ -82,6 +82,15 @@ async def test_live_search_reports_partial_coverage(install, credentials):
     assert result["partial"] is True
 
 
+async def test_one_room_search_reports_recent_history_limit(install, credentials):
+    install(lambda request: httpx.Response(200, json={
+        "items": [{"id": str(index), "text": "other"} for index in range(100)],
+    }))
+    result = await WebexClient(credentials).search_messages("budget", room_id="room-1")
+    assert result["messages"] == []
+    assert result["partial"] is True
+
+
 async def test_meeting_resources_use_read_endpoints(install, credentials):
     requests = []
 

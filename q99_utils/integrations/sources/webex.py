@@ -157,13 +157,16 @@ class WebexClient:
         rooms = [{"id": room_id}] if room_id else await self.spaces(100)
         hits: list[dict[str, Any]] = []
         searched = 0
+        truncated_history = False
         cap = min(max(limit, 1), 50)
         for room in rooms[:MAX_SPACES]:
             rid = room.get("id")
             if not rid:
                 continue
             searched += 1
-            for message in await self.messages(rid, MAX_MESSAGES_PER_SPACE):
+            recent = await self.messages(rid, MAX_MESSAGES_PER_SPACE)
+            truncated_history |= len(recent) == MAX_MESSAGES_PER_SPACE
+            for message in recent:
                 content = message.get("text") or message.get("markdown") or ""
                 if wanted in content.casefold():
                     hits.append(message)
@@ -175,7 +178,7 @@ class WebexClient:
             "messages": hits,
             "spaces_searched": searched,
             "spaces_available_on_first_page": len(rooms),
-            "partial": len(rooms) > searched or len(hits) >= cap,
+            "partial": truncated_history or len(rooms) > searched or len(hits) >= cap,
             "note": "Search covers recent messages in the reported spaces, not all Webex history.",
         }
 
@@ -195,13 +198,16 @@ class WebexClient:
         hits: list[dict[str, Any]] = []
         searched = 0
         probed = 0
+        truncated_history = False
         cap = min(max(limit, 1), 50)
         for room in rooms[:MAX_SPACES]:
             rid = room.get("id")
             if not rid:
                 continue
             searched += 1
-            for message in await self.messages(rid, MAX_MESSAGES_PER_SPACE):
+            recent = await self.messages(rid, MAX_MESSAGES_PER_SPACE)
+            truncated_history |= len(recent) == MAX_MESSAGES_PER_SPACE
+            for message in recent:
                 context = message.get("text") or message.get("markdown") or ""
                 for file_url in message.get("files") or []:
                     if probed >= MAX_FILE_PROBES:
@@ -227,7 +233,7 @@ class WebexClient:
             "files": hits,
             "spaces_searched": searched,
             "files_inspected": probed,
-            "partial": len(rooms) > searched or probed >= MAX_FILE_PROBES or len(hits) >= cap,
+            "partial": truncated_history or len(rooms) > searched or probed >= MAX_FILE_PROBES or len(hits) >= cap,
             "note": "Matches filenames and recent attachment messages, not file contents or all Webex history.",
         }
 
