@@ -7,6 +7,7 @@ from q99_utils.integrations.sources.azure_ad import AzureADIntegration
 from q99_utils.integrations.sources.bigquery import BigQueryIntegration
 from q99_utils.integrations.sources.bucket import BucketIntegration
 from q99_utils.integrations.sources.databricks import DatabricksIntegration
+from q99_utils.integrations.sources.datawell import DatawellIntegration
 from q99_utils.integrations.sources.gmail import GmailIntegration
 from q99_utils.integrations.sources.gmail_mailbox import GmailMailboxIntegration
 from q99_utils.integrations.sources.fracttal import FracttalIntegration
@@ -22,6 +23,7 @@ from q99_utils.integrations.sources.postgres import PostgresIntegration
 from q99_utils.integrations.sources.sharepoint import SharepointIntegration
 from q99_utils.integrations.sources.slack import SlackIntegration
 from q99_utils.integrations.sources.teams import TeamsIntegration
+from q99_utils.integrations.sources.wellprod import WellprodIntegration
 
 # Narrow on purpose: only a missing SDK is an absent extra, anything else is a bug.
 try:
@@ -40,6 +42,7 @@ __all__ = [
     "BigQueryIntegration",
     "BucketIntegration",
     "DatabricksIntegration",
+    "DatawellIntegration",
     "GmailIntegration",
     "GmailMailboxIntegration",
     "FracttalIntegration",
@@ -56,6 +59,7 @@ __all__ = [
     "SharepointIntegration",
     "SlackIntegration",
     "TeamsIntegration",
+    "WellprodIntegration",
 ]
 
 if GoogleDriveIntegration is None:
