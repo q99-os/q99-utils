@@ -19,6 +19,7 @@ APP_SOURCE_BY_SOURCE = {
     SourceEnum.teams: SourceEnum.microsoft_oauth_app,
     SourceEnum.sharepoint: SourceEnum.microsoft_oauth_app,
     SourceEnum.outlook_mailbox: SourceEnum.microsoft_oauth_app,
+    SourceEnum.webex: SourceEnum.webex_oauth_app,
 }
 
 

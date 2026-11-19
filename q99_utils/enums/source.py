@@ -23,6 +23,7 @@ class SourceEnum(StrEnum):
     gmail = "gmail"
     outlook = "outlook"
     teams = "teams"
+    webex = "webex"
     azure_ad = "azure_ad"
     bigquery = "bigquery"
     alamo = "alamo"
@@ -39,6 +40,7 @@ class SourceEnum(StrEnum):
     google_sso = "google_sso"
     google_oauth_app = "google_oauth_app"
     microsoft_oauth_app = "microsoft_oauth_app"
+    webex_oauth_app = "webex_oauth_app"
     # Dedicated company mailboxes whose attachments are ingested. Separate from
     # gmail/outlook, which are each user's own send-only mail.
     outlook_mailbox = "outlook_mailbox"
