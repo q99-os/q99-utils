@@ -111,12 +111,13 @@ async def test_swagger_url_is_accepted_as_api_base(install):
     ]
 
 
-@pytest.mark.parametrize("source,wrong_path,expected_path", [
-    (SourceEnum.datawell, "/wp-rest", "/rest"),
-    (SourceEnum.wellprod, "/rest", "/wp-rest"),
-    (SourceEnum.datawell, "/rest/wrong", "/rest"),
+@pytest.mark.parametrize("source,wrong_path", [
+    (SourceEnum.datawell, "/wp-rest"),
+    (SourceEnum.wellprod, "/rest"),
+    (SourceEnum.datawell, "/rest/wrong"),
+    (SourceEnum.wellprod, "/test"),
 ])
-async def test_other_product_or_path_is_rejected_before_login(install, source, wrong_path, expected_path):
+async def test_other_product_or_path_is_rejected_before_login(install, source, wrong_path):
     requests = []
     install(lambda request: requests.append(request) or httpx.Response(200, json={"token": "jwt"}))
     integration = (DatawellIntegration if source == SourceEnum.datawell else WellprodIntegration)(
@@ -128,7 +129,7 @@ async def test_other_product_or_path_is_rejected_before_login(install, source, w
         username="reader", password="secret",
     )
 
-    with pytest.raises(CredentialValidationError, match=f"^{source.capitalize()} URL must be your company URL or end in {expected_path}"):
+    with pytest.raises(CredentialValidationError, match=f"^Enter your company URL without an extra path, or paste the {source.capitalize()} Swagger URL"):
         await integration.test_connection(data)
     assert requests == []
 

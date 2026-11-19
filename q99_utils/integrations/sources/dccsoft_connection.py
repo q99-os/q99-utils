@@ -36,7 +36,8 @@ def api_base_url(value: str | None, source: str) -> str:
                 path = expected_path
             elif not path.endswith(expected_path):
                 raise CredentialValidationError(
-                    f"{label} URL must be your company URL or end in {expected_path}.", source=source,
+                    f"Enter your company URL without an extra path, or paste the {label} Swagger URL.",
+                    source=source,
                 )
         return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
     except ValueError:
