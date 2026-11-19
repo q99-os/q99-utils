@@ -400,10 +400,12 @@ class UserManagerSDK:
         params = {k: v for k, v in filters.items() if v is not None}
         return await self._request(method="GET", url=url, params=params)
 
-    async def update_report(self, report_id: str, json: dict):
-        """Patch title/report_type/metadata (status transitions are workflow, not CRUD)."""
+    async def update_report(self, report_id: str, json: dict, revision: int | None = None):
+        """Patch title/metadata (status transitions are workflow, not CRUD). With `revision`, UM saves only
+        if the report is still at it, else raises 412 with the current one."""
         url = f"{USER_MANAGER_URL}/v1/reports/{report_id}/"
-        return await self._request(method="PATCH", url=url, json=json)
+        headers = {"If-Match": str(revision)} if revision is not None else None
+        return await self._request(method="PATCH", url=url, headers=headers, json=json)
 
     async def delete_report(self, report_id: str):
         """Soft-delete (is_active=False on the UM side)."""
