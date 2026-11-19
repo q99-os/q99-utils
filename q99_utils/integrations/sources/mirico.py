@@ -6,7 +6,7 @@ Mirico's production and staging APIs use HTTP bearer authentication and an
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Literal, Mapping
 from urllib.parse import urlsplit
 
@@ -233,6 +233,88 @@ class MiricoIntegration(SourceIntegrationInterface):
             _deployment_path(deployment_id, "/raw-measurements/wind/"), data=data,
             params=_window(start, end, raw=True),
         )
+
+    async def get_deployment_extended(self, deployment_id: int, data: OnboardingData | None = None) -> dict:
+        return await self._get(_deployment_path(deployment_id, "/extended"), data=data, kind="object")
+
+    async def get_raw_targets(self, deployment_id: int, data: OnboardingData | None = None) -> list[dict]:
+        return await self._get(_deployment_path(deployment_id, "/raw-measurements/targets/"), data=data)
+
+    async def get_source_regions(self, deployment_id: int, data: OnboardingData | None = None) -> dict:
+        return await self._get(_deployment_path(deployment_id, "/loc-parameters/source-regions"), data=data, kind="object")
+
+    async def get_site_partitions(self, deployment_id: int, data: OnboardingData | None = None) -> dict:
+        return await self._get(_deployment_path(deployment_id, "/site/partitions"), data=data, kind="object")
+
+    async def get_localisation_parameters(self, deployment_id: int, data: OnboardingData | None = None) -> list[dict]:
+        return await self._get(_deployment_path(deployment_id, "/loc-parameters/metadata"), data=data)
+
+    async def get_detection_parameters(self, deployment_id: int, data: OnboardingData | None = None) -> list[dict]:
+        return await self._get(_deployment_path(deployment_id, "/det-parameters/metadata"), data=data)
+
+    async def get_flares(self, deployment_id: int, data: OnboardingData | None = None) -> list[dict]:
+        return await self._get(_deployment_path(deployment_id, "/flares"), data=data)
+
+    async def get_daily_tse(self, deployment_id: int, day: date | str, data: OnboardingData | None = None) -> dict:
+        if isinstance(day, str):
+            try:
+                day = date.fromisoformat(day[:10])
+            except ValueError:
+                raise ValueError("Mirico day must be an ISO 8601 date.") from None
+        if isinstance(day, datetime):
+            day = day.date()
+        if not isinstance(day, date):
+            raise ValueError("Mirico day must be a date or an ISO 8601 date string.")
+        return await self._get(
+            _deployment_path(deployment_id, "/daily-tse"), data=data, params={"date": day.isoformat()}, kind="object",
+        )
+
+    async def get_tse_prioritised(
+        self, deployment_id: int, start: datetime | str, end: datetime | str,
+        data: OnboardingData | None = None,
+    ) -> list[dict]:
+        return await self._get(
+            _deployment_path(deployment_id, "/prioritised/tse"), data=data, params=_window(start, end),
+        )
+
+    async def get_zone_emissions_prioritised(
+        self, deployment_id: int, start: datetime | str, end: datetime | str,
+        data: OnboardingData | None = None,
+    ) -> list[dict]:
+        return await self._get(
+            _deployment_path(deployment_id, "/prioritised/total-zone-emissions"), data=data, params=_window(start, end),
+        )
+
+    async def get_lq_clustering_prioritised(
+        self, deployment_id: int, start: datetime | str, end: datetime | str,
+        data: OnboardingData | None = None,
+    ) -> list[dict]:
+        params = {**_window(start, end), "labelled": "true"}
+        return await self._get(_deployment_path(deployment_id, "/prioritised/lq-output/clustering"), data=data, params=params)
+
+    async def get_lq_output(
+        self, deployment_id: int, start: datetime | str, end: datetime | str,
+        data: OnboardingData | None = None,
+    ) -> list[dict]:
+        params = {**_window(start, end), "labelled": "true"}
+        return await self._get(_deployment_path(deployment_id, "/lq-output"), data=data, params=params)
+
+    async def get_zone_rate(
+        self, deployment_id: int, start: datetime | str, end: datetime | str,
+        data: OnboardingData | None = None,
+    ) -> list[dict]:
+        return await self._get(_deployment_path(deployment_id, "/zone-rate"), data=data, params=_window(start, end))
+
+    async def get_comments(
+        self, deployment_id: int, start: datetime | str, end: datetime | str,
+        data: OnboardingData | None = None,
+    ) -> list[dict]:
+        return await self._get(_deployment_path(deployment_id, "/comments"), data=data, params=_window(start, end))
+
+    async def get_detection(self, detection_id: int, data: OnboardingData | None = None) -> dict:
+        if type(detection_id) is not int or detection_id < 1:
+            raise ValueError("Mirico detection_id must be a positive integer.")
+        return await self._get(f"/detection/{detection_id}", data=data, kind="object")
 
 
 __all__ = ["MiricoIntegration", "DEFAULT_API_BASE", "STAGING_API_BASE"]
