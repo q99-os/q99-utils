@@ -32,19 +32,19 @@ def install(monkeypatch):
     return use
 
 
-async def test_connection_checks_current_user_only(install, credentials):
+async def test_connection_checks_accessible_spaces(install, credentials):
     requests = []
 
     def handler(request):
         requests.append(request)
-        return httpx.Response(200, json={"id": "person-1"})
+        return httpx.Response(200, json={"items": []})
 
     install(handler)
     integration = WebexIntegration(source=SourceEnum.webex, um_sdk=AsyncMock())
     assert get_integration_class(SourceEnum.webex) is WebexIntegration
     await integration.test_connection(credentials)
     assert [(r.method, str(r.url)) for r in requests] == [
-        ("GET", "https://webexapis.com/v1/people/me")
+        ("GET", "https://webexapis.com/v1/rooms?max=1")
     ]
 
 
@@ -57,12 +57,12 @@ async def test_expired_access_token_refreshes_once_and_persists_rotation(install
             return httpx.Response(200, json={"access_token": "new", "refresh_token": "rotated"})
         if request.headers["Authorization"] == "Bearer old":
             return httpx.Response(401)
-        return httpx.Response(200, json={"id": "person-1"})
+        return httpx.Response(200, json={"items": []})
 
     install(handler)
     saved = AsyncMock()
     client = WebexClient(credentials, on_refresh=saved)
-    assert (await client.me())["id"] == "person-1"
+    assert await client.spaces() == []
     assert [r.method for r in requests] == ["GET", "POST", "GET"]
     assert credentials.refresh_token == "rotated"
     saved.assert_awaited_once_with(credentials)

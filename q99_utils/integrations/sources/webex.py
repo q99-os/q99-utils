@@ -124,9 +124,6 @@ class WebexClient:
             raise IntegrationError("Webex returned an invalid response.")
         return payload
 
-    async def me(self) -> dict[str, Any]:
-        return await self._json("/people/me")
-
     async def spaces(self, limit: int = 100) -> list[dict[str, Any]]:
         payload = await self._json("/rooms", params={"max": min(max(limit, 1), 100)})
         return payload.get("items") or []
@@ -271,11 +268,11 @@ class WebexIntegration(SourceIntegrationInterface):
 
     async def test_connection(self, data: OnboardingData | None = None) -> None:
         try:
-            person = await (await self.client(data)).me()
+            rooms = await (await self.client(data))._json("/rooms", params={"max": 1})
         except (AccessDenied, CredentialExpired) as exc:
             raise CredentialValidationError("Webex did not authorize this account.", source="webex") from exc
-        if not person.get("id"):
-            raise CredentialValidationError("Webex did not identify this account.", source="webex")
+        if not isinstance(rooms.get("items"), list):
+            raise CredentialValidationError("Webex returned an invalid spaces response.", source="webex")
 
 
 __all__ = ["WebexClient", "WebexIntegration"]
