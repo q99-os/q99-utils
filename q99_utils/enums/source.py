@@ -28,6 +28,8 @@ class SourceEnum(StrEnum):
     alamo = "alamo"
     fracttal = "fracttal"
     mirico = "mirico"
+    datawell = "datawell"
+    wellprod = "wellprod"
     # LLM sources named as litellm's providers: a client's own LiteLLM proxy, and Claude on Azure AI Foundry.
     litellm_proxy = "litellm_proxy"
     azure_ai = "azure_ai"

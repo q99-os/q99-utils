@@ -12,7 +12,7 @@ import jwt
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
 from fastapi import HTTPException, status
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, field_validator
 
 TOKEN_ISSUER = "quantos-um"
 LEEWAY_SECONDS = 30
@@ -39,6 +39,13 @@ class TokenClaims(BaseModel):
     blocked: dict[str, list[str]] = {}
     lock: dict | None = None
     mfa_setup_required: bool = False
+
+    @field_validator("user_id", mode="before")
+    @classmethod
+    def normalize_user_id(cls, value):
+        if isinstance(value, int) and not isinstance(value, bool):
+            return str(value)
+        return value
 
 
 @lru_cache(maxsize=1)

@@ -64,6 +64,9 @@ class TestVerifyToken:
         assert claims.groups == {"app": ["ops"]}
         assert claims.perms == ["chat:use"]
 
+    def test_integer_user_id_from_user_manager(self):
+        assert verify_token(_token(user_id=7)).user_id == "7"
+
     def test_expired(self):
         assert _status(_token(exp=int(time.time()) - 60)) == 401
 
