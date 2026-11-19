@@ -1,3 +1,5 @@
+import copy
+
 from fastapi import HTTPException, status
 from typing import List, Literal, Optional
 import httpx
@@ -14,7 +16,17 @@ class UserManagerSDK:
             raise ValueError("Pass either access_token or api_key, not both")
         self.access_token = access_token
         self.api_key = api_key
+        self.agent: str | None = None
+        self.engine_key: str | None = None
         self._client = httpx.AsyncClient(timeout=30.0)
+
+    def as_agent(self, agent: str, engine_key: str | None = None) -> "UserManagerSDK":
+        """The same caller's client, writing as Quantos for `agent` (a key like `report.writer`). A person's
+        client also needs the engine's key; an engine-key client is the engine launching the agent."""
+        clone = copy.copy(self)
+        clone.agent = agent
+        clone.engine_key = engine_key
+        return clone
 
     async def _request(
         self,
@@ -30,6 +42,10 @@ class UserManagerSDK:
             headers["Authorization"] = self.access_token
         elif self.api_key:
             headers["Authorization"] = f"Api-Key {self.api_key}"
+        if self.agent:
+            headers["X-Q99-Agent"] = self.agent
+            if self.access_token and self.engine_key:
+                headers["X-Engine-Key"] = self.engine_key
 
         try:
             response = await self._client.request(
@@ -402,8 +418,8 @@ class UserManagerSDK:
         )
 
     async def update_report_section(self, section_id: str, json: dict):
-        """Patch a section (typically `content`); UM records the tracing row with the
-        caller as actor (engine Api-Key → agent, user token → user)."""
+        """Patch a section (typically `content`); UM records the tracing row with the caller as actor
+        (Quantos for an agent client)."""
         url = f"{USER_MANAGER_URL}/v1/report-sections/{section_id}/"
         return await self._request(method="PATCH", url=url, json=json)
 
@@ -426,6 +442,13 @@ class UserManagerSDK:
             payload["section"] = section_id
         if parent_id is not None:
             payload["parent"] = parent_id
+        return await self._request(method="POST", url=url, json=payload)
+
+    async def create_report_comments_batch(self, report_id: str, comments: List[dict], supersede: bool = False):
+        """An agent's comments on a report in one call, announced once. `comments` = [{"body", "section"?}].
+        With `supersede`, this agent's open comments on the report are resolved first. Agent clients only."""
+        url = f"{USER_MANAGER_URL}/v1/report-comments/batch/"
+        payload = {"report": report_id, "supersede": supersede, "comments": comments}
         return await self._request(method="POST", url=url, json=payload)
 
     async def resolve_report_comment(self, comment_id: str):

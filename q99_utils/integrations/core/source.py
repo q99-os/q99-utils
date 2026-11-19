@@ -161,7 +161,7 @@ class SourceIntegrationInterface:
         """Return the canonical sqlglot SQL dialect for this integration's backend.
 
         Used downstream by StructuredDataQueryTool and DBSchemaExplorerTool to drive
-        Text2SQLAgent and validate_sql with the correct dialect. The returned string
+        the SQL query agent and validate_sql with the correct dialect. The returned string
         must be one sqlglot accepts (postgres, tsql, bigquery, databricks).
         """
         raise NotImplementedError
