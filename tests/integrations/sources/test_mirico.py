@@ -202,3 +202,76 @@ async def test_rejects_invalid_scope_and_response_before_using_bad_data(install,
     assert requests == []
     with pytest.raises(IntegrationError, match="invalid data list"):
         await integration.get_tse(33, "2026-11-08T00:00:00", "2026-11-09T00:00:00", credentials)
+
+
+@pytest.mark.parametrize("method,path,response", [
+    ("get_deployment_extended", "/deployments/33/extended", {"deployment": {"id": 33}}),
+    ("get_raw_targets", "/deployments/33/raw-measurements/targets/", [{"name": "R14"}]),
+    ("get_source_regions", "/deployments/33/loc-parameters/source-regions", {"type": "FeatureCollection", "features": []}),
+    ("get_site_partitions", "/deployments/33/site/partitions", {"type": "FeatureCollection", "features": []}),
+    ("get_localisation_parameters", "/deployments/33/loc-parameters/metadata", [{"id": "p"}]),
+    ("get_detection_parameters", "/deployments/33/det-parameters/metadata", []),
+    ("get_flares", "/deployments/33/flares", []),
+])
+async def test_deployment_metadata_reads(install, integration, credentials, method, path, response):
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json=response)
+
+    install(handler)
+    assert await getattr(integration, method)(33, credentials) == response
+    assert requests[0].url.path == f"/engine-api{path}"
+
+
+@pytest.mark.parametrize("method,path,labelled", [
+    ("get_tse_prioritised", "/prioritised/tse", False),
+    ("get_zone_emissions_prioritised", "/prioritised/total-zone-emissions", False),
+    ("get_lq_clustering_prioritised", "/prioritised/lq-output/clustering", True),
+    ("get_lq_output", "/lq-output", True),
+    ("get_zone_rate", "/zone-rate", False),
+    ("get_comments", "/comments", False),
+])
+async def test_more_windowed_reads(install, integration, credentials, method, path, labelled):
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json=[])
+
+    install(handler)
+    await getattr(integration, method)(33, "2026-11-08T21:00:00Z", "2026-11-09T00:00:00Z", credentials)
+    params = requests[0].url.params
+    assert requests[0].url.path == f"/engine-api/deployments/33{path}"
+    assert (params["start_time"], params["end_time"]) == ("2026-11-08T21:00:00", "2026-11-09T00:00:00")
+    assert params.get("labelled") == ("true" if labelled else None)
+
+
+async def test_daily_tse_sends_one_day(install, integration, credentials):
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json={"date": "2026-11-04T00:00:00", "median_tse": 6.9})
+
+    install(handler)
+    assert (await integration.get_daily_tse(33, "2026-11-04", credentials))["median_tse"] == 6.9
+    await integration.get_daily_tse(33, datetime(2026, 11, 4, 15, tzinfo=timezone.utc), credentials)
+    assert [r.url.params["date"] for r in requests] == ["2026-11-04", "2026-11-04"]
+    with pytest.raises(ValueError, match="ISO 8601 date"):
+        await integration.get_daily_tse(33, "yesterday", credentials)
+
+
+async def test_detection_reads_by_id(install, integration, credentials):
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json={"id": 7})
+
+    install(handler)
+    assert await integration.get_detection(7, credentials) == {"id": 7}
+    assert requests[0].url.path == "/engine-api/detection/7"
+    with pytest.raises(ValueError, match="positive integer"):
+        await integration.get_detection(0, credentials)
