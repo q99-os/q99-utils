@@ -32,7 +32,7 @@ def api_base_url(value: str | None, source: str) -> str:
         expected_path = {"datawell": "/rest", "wellprod": "/wp-rest"}.get(source)
         if expected_path and not path.endswith(expected_path):
             raise CredentialValidationError(
-                f"{source} API base URL must end in {expected_path}.", source=source,
+                f"{source.capitalize()} API base URL must end in {expected_path}.", source=source,
             )
         return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
     except ValueError:

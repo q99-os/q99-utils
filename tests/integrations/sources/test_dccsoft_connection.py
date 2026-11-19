@@ -127,7 +127,7 @@ async def test_other_product_or_path_is_rejected_before_login(install, source, w
         username="reader", password="secret",
     )
 
-    with pytest.raises(CredentialValidationError, match=f"must end in {expected_path}"):
+    with pytest.raises(CredentialValidationError, match=f"^{source.capitalize()} API base URL must end in {expected_path}"):
         await integration.test_connection(data)
     assert requests == []
 
