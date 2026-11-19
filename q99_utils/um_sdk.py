@@ -228,6 +228,28 @@ class UserManagerSDK:
 
         return await self._request(method="POST", url=url, params={"tags":tags_ids})
 
+    async def list_memories(self, kind: Literal["memory", "workflow"] | None = None, in_use: bool = False):
+        """The caller's own memories and workflows, or only those of one kind. With `in_use`, the workflows they have
+        on instead, their own and shared with them, under the names Quantos reads them by."""
+        url = f"{USER_MANAGER_URL}/v1/memories/"
+        params = {"in_use": 1} if in_use else ({"kind": kind} if kind else None)
+        return await self._request(method="GET", url=url, params=params)
+
+    async def save_memory(self, kind: Literal["memory", "workflow"], name: str, description: str, content: str):
+        """Saves one of the caller's memories; one of that kind with the same name is replaced."""
+        url = f"{USER_MANAGER_URL}/v1/memories/"
+        payload = {"kind": kind, "name": name, "description": description, "content": content}
+        return await self._request(method="POST", url=url, json=payload)
+
+    async def switch_workflow(self, workflow_id: str, on: bool):
+        """Turns one of the caller's workflows, or one shared with them, on or off for them."""
+        url = f"{USER_MANAGER_URL}/v1/memories/{workflow_id}/switch/"
+        return await self._request(method="POST", url=url, json={"on": on})
+
+    async def delete_memory(self, memory_id: str):
+        url = f"{USER_MANAGER_URL}/v1/memories/{memory_id}/"
+        return await self._request(method="DELETE", url=url)
+
     async def fetch_idp_role(self, email: str):
         url = f"{USER_MANAGER_URL}/v1/invitation/fetch-idp-role/"
         return await self._request(method="POST", url=url, json={"email": email})
