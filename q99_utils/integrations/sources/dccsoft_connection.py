@@ -12,9 +12,10 @@ from q99_utils.models import OnboardingData
 
 
 def api_base_url(value: str | None, source: str) -> str:
-    """Accept a product API root, including one pasted from its Swagger page."""
+    """Accept a company URL, product API root, or product Swagger URL."""
+    label = source.capitalize()
     if not value or not value.strip():
-        raise CredentialValidationError(f"{source} requires an API base URL.", source=source)
+        raise CredentialValidationError(f"{label} requires an API base URL.", source=source)
     try:
         parsed = urlsplit(value.strip())
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query:
@@ -29,10 +30,19 @@ def api_base_url(value: str | None, source: str) -> str:
                 break
         if parsed.fragment and not is_swagger_url:
             raise ValueError("Invalid API base URL")
+        expected_path = {"datawell": "/rest", "wellprod": "/wp-rest"}.get(source)
+        if expected_path:
+            if not path:
+                path = expected_path
+            elif not path.endswith(expected_path):
+                raise CredentialValidationError(
+                    f"Enter your company URL without an extra path, or paste the {label} Swagger URL.",
+                    source=source,
+                )
         return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
     except ValueError:
         raise CredentialValidationError(
-            f"{source} requires an HTTPS API base URL.",
+            f"{label} requires an HTTPS API base URL.",
             source=source,
         ) from None
 
@@ -41,9 +51,10 @@ class DccsoftConnectionIntegration(SourceIntegrationInterface):
     async def test_connection(self, data: OnboardingData | None = None) -> None:
         credentials = data if data is not None else await self.get_credentials()
         source = str(self.source)
+        label = source.capitalize()
         if not credentials.username or not credentials.password:
             raise CredentialValidationError(
-                f"{source} requires a username and password.", source=source,
+                f"{label} requires a username and password.", source=source,
             )
         base_url = api_base_url(credentials.api_base, source)
 
@@ -55,7 +66,7 @@ class DccsoftConnectionIntegration(SourceIntegrationInterface):
                 )
                 if response.status_code in (401, 403):
                     raise CredentialValidationError(
-                        f"{source} rejected the username or password.", source=source,
+                        f"{label} rejected the username or password.", source=source,
                     )
                 response.raise_for_status()
                 body = response.json()
@@ -65,6 +76,6 @@ class DccsoftConnectionIntegration(SourceIntegrationInterface):
             raise
         except (httpx.HTTPError, ValueError):
             raise CredentialValidationError(
-                f"{source} connection test failed. Check the API base URL and credentials.",
+                f"{label} connection test failed. Check the API base URL and credentials.",
                 source=source,
             ) from None

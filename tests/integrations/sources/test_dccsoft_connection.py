@@ -65,6 +65,7 @@ async def test_connection_failure_is_sanitized(install, response):
     with pytest.raises(CredentialValidationError) as error:
         await integration.test_connection(data)
     assert "secret" not in str(error.value)
+    assert str(error.value).startswith("Datawell ")
 
 
 async def test_missing_credentials_do_not_call_api(install):
@@ -73,7 +74,7 @@ async def test_missing_credentials_do_not_call_api(install):
     integration = WellprodIntegration(source=SourceEnum.wellprod, um_sdk=AsyncMock())
     data = OnboardingData(source=SourceEnum.wellprod, integration_type="external_api", api_base="https://example.com/wp-rest", username="", password="")
 
-    with pytest.raises(CredentialValidationError):
+    with pytest.raises(CredentialValidationError, match="^Wellprod "):
         await integration.test_connection(data)
     assert requests == []
 
@@ -85,7 +86,7 @@ async def test_invalid_api_base_does_not_call_api(install, bad_url):
     integration = DatawellIntegration(source=SourceEnum.datawell, um_sdk=AsyncMock())
     data = OnboardingData(source=SourceEnum.datawell, integration_type="external_api", api_base=bad_url, username="reader", password="secret")
 
-    with pytest.raises(CredentialValidationError):
+    with pytest.raises(CredentialValidationError, match="^Datawell "):
         await integration.test_connection(data)
     assert requests == []
 
@@ -108,3 +109,57 @@ async def test_swagger_url_is_accepted_as_api_base(install):
         "https://another.example.com/wp-rest/api/auth/login",
         "https://another.example.com/wp-rest/api/auth/login",
     ]
+
+
+@pytest.mark.parametrize("source,wrong_path", [
+    (SourceEnum.datawell, "/wp-rest"),
+    (SourceEnum.wellprod, "/rest"),
+    (SourceEnum.datawell, "/rest/wrong"),
+    (SourceEnum.wellprod, "/test"),
+])
+async def test_other_product_or_path_is_rejected_before_login(install, source, wrong_path):
+    requests = []
+    install(lambda request: requests.append(request) or httpx.Response(200, json={"token": "jwt"}))
+    integration = (DatawellIntegration if source == SourceEnum.datawell else WellprodIntegration)(
+        source=source, um_sdk=AsyncMock(),
+    )
+    data = OnboardingData(
+        source=source, integration_type="external_api",
+        api_base=f"https://other.example.com{wrong_path}",
+        username="reader", password="secret",
+    )
+
+    with pytest.raises(CredentialValidationError, match=f"^Enter your company URL without an extra path, or paste the {source.capitalize()} Swagger URL"):
+        await integration.test_connection(data)
+    assert requests == []
+
+
+@pytest.mark.parametrize("source,cls,api_path", [
+    (SourceEnum.datawell, DatawellIntegration, "/rest"),
+    (SourceEnum.wellprod, WellprodIntegration, "/wp-rest"),
+])
+async def test_company_url_adds_product_path_before_login(install, source, cls, api_path):
+    requests = []
+    install(lambda request: requests.append(request) or httpx.Response(200, json={"token": "jwt"}))
+    data = OnboardingData(
+        source=source, integration_type="external_api",
+        api_base="https://business.example.com/", username="reader", password="secret",
+    )
+
+    await cls(source=source, um_sdk=AsyncMock()).test_connection(data)
+    assert [str(request.url) for request in requests] == [
+        f"https://business.example.com{api_path}/api/auth/login"
+    ]
+
+
+async def test_datawell_swagger_url_with_trailing_hash_is_accepted(install):
+    requests = []
+    install(lambda request: requests.append(request) or httpx.Response(200, json={"token": "jwt"}))
+    data = OnboardingData(
+        source=SourceEnum.datawell, integration_type="external_api",
+        api_base="https://other.example.com/rest/swagger-ui/index.html#",
+        username="reader", password="secret",
+    )
+
+    await DatawellIntegration(source=SourceEnum.datawell, um_sdk=AsyncMock()).test_connection(data)
+    assert [str(request.url) for request in requests] == ["https://other.example.com/rest/api/auth/login"]
