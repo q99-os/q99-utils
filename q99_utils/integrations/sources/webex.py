@@ -25,6 +25,7 @@ WEBEX_API = "https://webexapis.com/v1"
 REQUEST_TIMEOUT = 20.0
 MAX_SPACES = 20
 MAX_MESSAGES_PER_SPACE = 100
+MAX_FILE_PROBES = 40
 MAX_TRANSCRIPT_BYTES = 1_000_000
 
 
@@ -186,13 +187,14 @@ class WebexClient:
         ]
 
     async def search_files(self, query: str, room_id: str | None = None, limit: int = 20) -> dict[str, Any]:
-        """Find recent attachments by the message around them, not file contents."""
+        """Find recent attachments by filename or the message around them."""
         wanted = query.strip().casefold()
         if not wanted:
             raise ValueError("Search text is required.")
         rooms = [{"id": room_id}] if room_id else await self.spaces(100)
         hits: list[dict[str, Any]] = []
         searched = 0
+        probed = 0
         cap = min(max(limit, 1), 50)
         for room in rooms[:MAX_SPACES]:
             rid = room.get("id")
@@ -201,17 +203,32 @@ class WebexClient:
             searched += 1
             for message in await self.messages(rid, MAX_MESSAGES_PER_SPACE):
                 context = message.get("text") or message.get("markdown") or ""
-                if message.get("files") and wanted in context.casefold():
-                    hits.append({"room_id": rid, "message_id": message.get("id"), "files": message["files"], "context": context})
+                for file_url in message.get("files") or []:
+                    if probed >= MAX_FILE_PROBES:
+                        break
+                    probed += 1
+                    try:
+                        details = await self.file_details(file_url)
+                    except (AccessDenied, ResourceNotFound, ValueError):
+                        details = {}
+                    filename = details.get("content_disposition") or ""
+                    if wanted in filename.casefold() or wanted in context.casefold():
+                        hits.append({
+                            "room_id": rid, "message_id": message.get("id"),
+                            "url": file_url, "metadata": details, "context": context,
+                        })
                     if len(hits) >= cap:
                         break
-            if len(hits) >= cap:
+                if probed >= MAX_FILE_PROBES or len(hits) >= cap:
+                    break
+            if probed >= MAX_FILE_PROBES or len(hits) >= cap:
                 break
         return {
             "files": hits,
             "spaces_searched": searched,
-            "partial": len(rooms) > searched or len(hits) >= cap,
-            "note": "Matches recent attachment messages, not file names or file contents.",
+            "files_inspected": probed,
+            "partial": len(rooms) > searched or probed >= MAX_FILE_PROBES or len(hits) >= cap,
+            "note": "Matches filenames and recent attachment messages, not file contents or all Webex history.",
         }
 
     async def file_details(self, file_url: str) -> dict[str, Any]:

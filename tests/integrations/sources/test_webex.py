@@ -111,12 +111,27 @@ async def test_transcript_download_rejects_untrusted_url(install, credentials):
         await WebexClient(credentials).transcripts("meeting-1", include_text=True)
 
 
-async def test_file_search_is_limited_to_attachment_message_context(install, credentials):
+async def test_transcript_download_reads_webex_text(install, credentials):
+    def handler(request):
+        if request.url.path.endswith("/download"):
+            return httpx.Response(200, text="Discussion and next steps")
+        return httpx.Response(200, json={
+            "items": [{"id": "t", "txtDownloadLink": "https://webexapis.com/v1/meetingTranscripts/t/download?format=txt"}],
+        })
+
+    install(handler)
+    transcripts = await WebexClient(credentials).transcripts("meeting-1", include_text=True)
+    assert transcripts[0]["text"] == "Discussion and next steps"
+
+
+async def test_file_search_matches_filename(install, credentials):
     def handler(request):
         if request.url.path == "/v1/rooms":
             return httpx.Response(200, json={"items": [{"id": "room", "title": "Project alpha"}]})
+        if request.method == "HEAD":
+            return httpx.Response(200, headers={"Content-Disposition": 'attachment; filename="budget.xlsx"'})
         return httpx.Response(200, json={"items": [
-            {"id": "m1", "text": "Budget draft", "files": ["https://webexapis.com/v1/contents/file"]},
+            {"id": "m1", "text": "Draft attached", "files": ["https://webexapis.com/v1/contents/file"]},
             {"id": "m2", "text": "Budget chat"},
         ]})
 
@@ -125,7 +140,8 @@ async def test_file_search_is_limited_to_attachment_message_context(install, cre
     assert [r["title"] for r in (await client.search_spaces("alpha"))["spaces"]] == ["Project alpha"]
     result = await client.search_files("budget")
     assert [hit["message_id"] for hit in result["files"]] == ["m1"]
-    assert "not file names or file contents" in result["note"]
+    assert result["files"][0]["metadata"]["content_disposition"].endswith('"budget.xlsx"')
+    assert "not file contents" in result["note"]
 
 
 async def test_file_details_rejects_arbitrary_url_before_network(install, credentials):
