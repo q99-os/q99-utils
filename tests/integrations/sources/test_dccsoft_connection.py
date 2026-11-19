@@ -128,9 +128,27 @@ async def test_other_product_or_path_is_rejected_before_login(install, source, w
         username="reader", password="secret",
     )
 
-    with pytest.raises(CredentialValidationError, match=f"^{source.capitalize()} API base URL must end in {expected_path}"):
+    with pytest.raises(CredentialValidationError, match=f"^{source.capitalize()} URL must be your company URL or end in {expected_path}"):
         await integration.test_connection(data)
     assert requests == []
+
+
+@pytest.mark.parametrize("source,cls,api_path", [
+    (SourceEnum.datawell, DatawellIntegration, "/rest"),
+    (SourceEnum.wellprod, WellprodIntegration, "/wp-rest"),
+])
+async def test_company_url_adds_product_path_before_login(install, source, cls, api_path):
+    requests = []
+    install(lambda request: requests.append(request) or httpx.Response(200, json={"token": "jwt"}))
+    data = OnboardingData(
+        source=source, integration_type="external_api",
+        api_base="https://business.example.com/", username="reader", password="secret",
+    )
+
+    await cls(source=source, um_sdk=AsyncMock()).test_connection(data)
+    assert [str(request.url) for request in requests] == [
+        f"https://business.example.com{api_path}/api/auth/login"
+    ]
 
 
 async def test_datawell_swagger_url_with_trailing_hash_is_accepted(install):

@@ -12,7 +12,7 @@ from q99_utils.models import OnboardingData
 
 
 def api_base_url(value: str | None, source: str) -> str:
-    """Accept a product API root, including one pasted from its Swagger page."""
+    """Accept a company URL, product API root, or product Swagger URL."""
     label = source.capitalize()
     if not value or not value.strip():
         raise CredentialValidationError(f"{label} requires an API base URL.", source=source)
@@ -31,10 +31,13 @@ def api_base_url(value: str | None, source: str) -> str:
         if parsed.fragment and not is_swagger_url:
             raise ValueError("Invalid API base URL")
         expected_path = {"datawell": "/rest", "wellprod": "/wp-rest"}.get(source)
-        if expected_path and not path.endswith(expected_path):
-            raise CredentialValidationError(
-                f"{label} API base URL must end in {expected_path}.", source=source,
-            )
+        if expected_path:
+            if not path:
+                path = expected_path
+            elif not path.endswith(expected_path):
+                raise CredentialValidationError(
+                    f"{label} URL must be your company URL or end in {expected_path}.", source=source,
+                )
         return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
     except ValueError:
         raise CredentialValidationError(
