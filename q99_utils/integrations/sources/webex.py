@@ -82,8 +82,9 @@ class WebexClient:
         url = absolute_url or f"{WEBEX_API}{path}"
         if absolute_url:
             parsed = urlsplit(url)
-            if (parsed.scheme != "https" or parsed.netloc != "webexapis.com"
-                    or "/meetingTranscripts/" not in parsed.path or not parsed.path.endswith("/download")):
+            transcript = parsed.path.startswith("/v1/meetingTranscripts/") and parsed.path.endswith("/download")
+            attachment = parsed.path.startswith("/v1/contents/") and method == "HEAD"
+            if parsed.scheme != "https" or parsed.netloc != "webexapis.com" or not (transcript or attachment):
                 raise ValueError("Only Webex API download links are accepted.")
         for attempt in range(2):
             if not self.credentials.api_key:
@@ -106,6 +107,8 @@ class WebexClient:
                 raise AccessDenied("Your Webex account cannot access this resource.")
             if response.status_code == 404:
                 raise ResourceNotFound("Webex resource not found.", source="webex")
+            if 300 <= response.status_code < 400:
+                raise IntegrationError("Webex returned an unsupported redirect for this resource.")
             if response.status_code >= 400:
                 raise IntegrationError(f"Webex request failed ({response.status_code}).")
             return response
@@ -127,6 +130,17 @@ class WebexClient:
     async def spaces(self, limit: int = 100) -> list[dict[str, Any]]:
         payload = await self._json("/rooms", params={"max": min(max(limit, 1), 100)})
         return payload.get("items") or []
+
+    async def search_spaces(self, query: str) -> dict[str, Any]:
+        rooms = await self.spaces(100)
+        wanted = query.strip().casefold()
+        if not wanted:
+            raise ValueError("Search text is required.")
+        return {
+            "spaces": [room for room in rooms if wanted in (room.get("title") or "").casefold()],
+            "partial": len(rooms) == 100,
+            "note": "Search covers the first page of spaces the account can access.",
+        }
 
     async def messages(self, room_id: str, limit: int = 50) -> list[dict[str, Any]]:
         payload = await self._json(
@@ -173,6 +187,43 @@ class WebexClient:
             for item in await self.messages(room_id, limit)
             if item.get("files")
         ]
+
+    async def search_files(self, query: str, room_id: str | None = None, limit: int = 20) -> dict[str, Any]:
+        """Find recent attachments by the message around them, not file contents."""
+        wanted = query.strip().casefold()
+        if not wanted:
+            raise ValueError("Search text is required.")
+        rooms = [{"id": room_id}] if room_id else await self.spaces(100)
+        hits: list[dict[str, Any]] = []
+        searched = 0
+        cap = min(max(limit, 1), 50)
+        for room in rooms[:MAX_SPACES]:
+            rid = room.get("id")
+            if not rid:
+                continue
+            searched += 1
+            for message in await self.messages(rid, MAX_MESSAGES_PER_SPACE):
+                context = message.get("text") or message.get("markdown") or ""
+                if message.get("files") and wanted in context.casefold():
+                    hits.append({"room_id": rid, "message_id": message.get("id"), "files": message["files"], "context": context})
+                    if len(hits) >= cap:
+                        break
+            if len(hits) >= cap:
+                break
+        return {
+            "files": hits,
+            "spaces_searched": searched,
+            "partial": len(rooms) > searched or len(hits) >= cap,
+            "note": "Matches recent attachment messages, not file names or file contents.",
+        }
+
+    async def file_details(self, file_url: str) -> dict[str, Any]:
+        response = await self._request("", absolute_url=file_url, method="HEAD")
+        return {
+            "content_type": response.headers.get("Content-Type"),
+            "content_length": response.headers.get("Content-Length"),
+            "content_disposition": response.headers.get("Content-Disposition"),
+        }
 
     async def meetings(self, days_back: int = 30, limit: int = 50) -> list[dict[str, Any]]:
         now = datetime.now(timezone.utc)
