@@ -1223,7 +1223,7 @@ class OpenWellsEDMMapper(OpenWellsAgentMapper):
         param = f"%{search_query}%"
         sql = """
             SELECT
-                well_id, well_legal_name, well_common_name,
+                well_id, well_legal_name, well_common_name, well_uwi,
                 field_name, site_id, well_operator,
                 loc_country, loc_state, loc_county,
                 spud_date, target_formation, is_offshore, well_purpose
