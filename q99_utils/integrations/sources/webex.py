@@ -83,9 +83,17 @@ class WebexClient:
         url = absolute_url or f"{WEBEX_API}{path}"
         if absolute_url:
             parsed = urlsplit(url)
-            transcript = parsed.path.startswith("/v1/meetingTranscripts/") and parsed.path.endswith("/download")
-            attachment = parsed.path.startswith("/v1/contents/") and method == "HEAD"
-            if parsed.scheme != "https" or parsed.netloc != "webexapis.com" or not (transcript or attachment):
+            transcript = (
+                parsed.netloc == "webexapis.com"
+                and parsed.path.startswith("/v1/meetingTranscripts/")
+                and parsed.path.endswith("/download")
+            )
+            attachment = (
+                parsed.netloc in {"webexapis.com", "integration.webexapis.com"}
+                and parsed.path.startswith("/v1/contents/")
+                and method == "HEAD"
+            )
+            if parsed.scheme != "https" or not (transcript or attachment):
                 raise ValueError("Only Webex API download links are accepted.")
         for attempt in range(2):
             if not self.credentials.api_key:

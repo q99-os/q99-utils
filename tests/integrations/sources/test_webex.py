@@ -159,3 +159,18 @@ async def test_file_details_rejects_arbitrary_url_before_network(install, creden
     with pytest.raises(ValueError, match="Only Webex API"):
         await WebexClient(credentials).file_details("https://internal.example/secret")
     assert requests == []
+
+
+async def test_file_details_accepts_webex_integration_content_host(install, credentials):
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, headers={"Content-Disposition": 'attachment; filename="notes.pdf"'})
+
+    install(handler)
+    details = await WebexClient(credentials).file_details(
+        "https://integration.webexapis.com/v1/contents/file-id"
+    )
+    assert details["content_disposition"] == 'attachment; filename="notes.pdf"'
+    assert requests[0].method == "HEAD"
