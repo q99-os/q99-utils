@@ -23,6 +23,7 @@ class SourceEnum(StrEnum):
     gmail = "gmail"
     outlook = "outlook"
     teams = "teams"
+    webex_archive = "webex_archive"
     azure_ad = "azure_ad"
     bigquery = "bigquery"
     alamo = "alamo"
