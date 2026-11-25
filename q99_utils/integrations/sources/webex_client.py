@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlsplit
 
@@ -32,7 +33,16 @@ class WebexClient:
 
     async def _refresh(self) -> None:
         creds = self.credentials
-        if not (creds.refresh_token and creds.client_id and creds.client_secret):
+        # A provider-owned Service App keeps one client secret on the server.
+        # Older credentials may still carry their own client pair.
+        provider_id = os.getenv("WEBEX_SERVICE_APP_CLIENT_ID")
+        provider_secret = os.getenv("WEBEX_SERVICE_APP_CLIENT_SECRET")
+        if bool(provider_id) != bool(provider_secret):
+            raise AppCredentialExpired("The Webex Service App is not fully configured.", source="webex_archive")
+        client_id, client_secret = (
+            (provider_id, provider_secret) if provider_id else (creds.client_id, creds.client_secret)
+        )
+        if not (creds.refresh_token and client_id and client_secret):
             raise CredentialExpired("Reconnect Webex to continue.", source="webex_archive")
         try:
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
@@ -40,8 +50,8 @@ class WebexClient:
                     f"{WEBEX_API}/access_token",
                     data={
                         "grant_type": "refresh_token",
-                        "client_id": creds.client_id,
-                        "client_secret": creds.client_secret,
+                        "client_id": client_id,
+                        "client_secret": client_secret,
                         "refresh_token": creds.refresh_token,
                     },
                 )
