@@ -96,6 +96,11 @@ class WebexArchiveIntegration(SourceIntegrationInterface):
         # The user-level /meetingTranscripts listing only covers that user's meetings.
         return f"{WEBEX_API}/meetingTranscripts/{quote(transcript_id, safe='')}/download?format=txt"
 
+    async def _transcript_text(self, client: WebexClient, transcript_id: str) -> str | None:
+        raw = (await client.download(self._transcript_link(transcript_id), MAX_TRANSCRIPT_BYTES)).decode("utf-8-sig")
+        decision, clean = transcript_decision(raw)
+        return clean if decision.accepted else None
+
     async def get_files_from_path(self, file_path: str, metadata=None, config=None, *args, **kwargs):
         client = await self.client()
         if file_path.startswith("room/") and "/attachment/" in file_path:
@@ -105,10 +110,8 @@ class WebexArchiveIntegration(SourceIntegrationInterface):
             parts = file_path.split("/")
             if len(parts) != 4:
                 raise ValueError("Invalid Webex transcript reference.")
-            link = self._transcript_link(unquote(parts[3]))
-            raw = (await client.download(link, MAX_TRANSCRIPT_BYTES)).decode("utf-8-sig")
-            decision, clean = transcript_decision(raw)
-            if not decision.accepted:
+            clean = await self._transcript_text(client, unquote(parts[3]))
+            if clean is None:
                 raise ResourceNotFound("Webex transcript has no indexable text.", source="webex_archive")
             return io.BytesIO(clean.encode("utf-8"))
         raise ValueError("Invalid Webex archive reference.")
@@ -181,10 +184,8 @@ class WebexArchiveIntegration(SourceIntegrationInterface):
                     meeting_id, transcript_id = data.get("meetingId"), data.get("id")
                     if not (meeting_id and transcript_id):
                         continue
-                    link = self._transcript_link(transcript_id)
-                    raw = (await client.download(link, MAX_TRANSCRIPT_BYTES)).decode("utf-8-sig")
-                    decision, clean = transcript_decision(raw)
-                    if not decision.accepted:
+                    clean = await self._transcript_text(client, transcript_id)
+                    if clean is None:
                         continue
                     ref = _transcript_ref(meeting_id, transcript_id)
                     host = data.get("hostEmail")
