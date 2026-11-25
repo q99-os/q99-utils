@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlsplit
 
@@ -33,16 +32,7 @@ class WebexClient:
 
     async def _refresh(self) -> None:
         creds = self.credentials
-        # A provider-owned Service App keeps one client secret on the server.
-        # Older credentials may still carry their own client pair.
-        provider_id = os.getenv("WEBEX_SERVICE_APP_CLIENT_ID")
-        provider_secret = os.getenv("WEBEX_SERVICE_APP_CLIENT_SECRET")
-        if bool(provider_id) != bool(provider_secret):
-            raise AppCredentialExpired("The Webex Service App is not fully configured.", source="webex_archive")
-        client_id, client_secret = (
-            (provider_id, provider_secret) if provider_id else (creds.client_id, creds.client_secret)
-        )
-        if not (creds.refresh_token and client_id and client_secret):
+        if not (creds.refresh_token and creds.client_id and creds.client_secret):
             raise CredentialExpired("Reconnect Webex to continue.", source="webex_archive")
         try:
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
@@ -50,8 +40,8 @@ class WebexClient:
                     f"{WEBEX_API}/access_token",
                     data={
                         "grant_type": "refresh_token",
-                        "client_id": client_id,
-                        "client_secret": client_secret,
+                        "client_id": creds.client_id,
+                        "client_secret": creds.client_secret,
                         "refresh_token": creds.refresh_token,
                     },
                 )
@@ -115,7 +105,7 @@ class WebexClient:
             if response.status_code == 401:
                 raise CredentialExpired("Reconnect Webex to continue.", source="webex_archive")
             if response.status_code == 403:
-                raise AccessDenied("The Webex Service App cannot access this resource.")
+                raise AccessDenied("The Webex connection cannot access this resource.")
             if response.status_code == 404:
                 raise ResourceNotFound("Webex resource not found.", source="webex_archive")
             if 300 <= response.status_code < 400:

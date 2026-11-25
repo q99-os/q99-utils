@@ -32,7 +32,7 @@ def install_transport(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_expired_service_token_rotates_and_persists(install_transport, credentials):
+async def test_expired_customer_token_rotates_and_persists(install_transport, credentials):
     requests = []
 
     def respond(request):
@@ -54,11 +54,7 @@ async def test_expired_service_token_rotates_and_persists(install_transport, cre
 
 
 @pytest.mark.asyncio
-async def test_provider_secret_refreshes_without_per_org_client_pair(install_transport, monkeypatch, credentials):
-    monkeypatch.setenv("WEBEX_SERVICE_APP_CLIENT_ID", "provider-client")
-    monkeypatch.setenv("WEBEX_SERVICE_APP_CLIENT_SECRET", "provider-secret")
-    credentials.client_id = None
-    credentials.client_secret = None
+async def test_customer_service_app_secret_refreshes_token(install_transport, credentials):
     requests = []
 
     def respond(request):
@@ -71,8 +67,8 @@ async def test_provider_secret_refreshes_without_per_org_client_pair(install_tra
     credentials.api_key = None
     assert await WebexClient(credentials)._json("/events") == {"items": []}
     assert requests[0].url.path == "/v1/access_token"
-    assert "client_id=provider-client" in requests[0].content.decode()
-    assert "client_secret=provider-secret" in requests[0].content.decode()
+    assert "client_id=app" in requests[0].content.decode()
+    assert "client_secret=secret" in requests[0].content.decode()
 
 
 @pytest.mark.asyncio
