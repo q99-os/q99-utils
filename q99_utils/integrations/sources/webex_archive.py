@@ -91,13 +91,16 @@ class WebexArchiveIntegration(SourceIntegrationInterface):
             return [UNMAPPED]
 
     @staticmethod
-    def _transcript_link(transcript_id: str) -> str:
+    def _transcript_link(meeting_id: str, transcript_id: str) -> str:
         # Compliance Officer access uses the transcript download API directly.
         # The user-level /meetingTranscripts listing only covers that user's meetings.
-        return f"{WEBEX_API}/meetingTranscripts/{quote(transcript_id, safe='')}/download?format=txt"
+        return (
+            f"{WEBEX_API}/meetingTranscripts/{quote(transcript_id, safe='')}/download"
+            f"?meetingId={quote(meeting_id, safe='')}&format=txt"
+        )
 
-    async def _transcript_text(self, client: WebexClient, transcript_id: str) -> str | None:
-        raw = (await client.download(self._transcript_link(transcript_id), MAX_TRANSCRIPT_BYTES)).decode("utf-8-sig")
+    async def _transcript_text(self, client: WebexClient, meeting_id: str, transcript_id: str) -> str | None:
+        raw = (await client.download(self._transcript_link(meeting_id, transcript_id), MAX_TRANSCRIPT_BYTES)).decode("utf-8-sig")
         decision, clean = transcript_decision(raw)
         return clean if decision.accepted else None
 
@@ -110,7 +113,7 @@ class WebexArchiveIntegration(SourceIntegrationInterface):
             parts = file_path.split("/")
             if len(parts) != 4:
                 raise ValueError("Invalid Webex transcript reference.")
-            clean = await self._transcript_text(client, unquote(parts[3]))
+            clean = await self._transcript_text(client, unquote(parts[1]), unquote(parts[3]))
             if clean is None:
                 raise ResourceNotFound("Webex transcript has no indexable text.", source="webex_archive")
             return io.BytesIO(clean.encode("utf-8"))
@@ -184,7 +187,7 @@ class WebexArchiveIntegration(SourceIntegrationInterface):
                     meeting_id, transcript_id = data.get("meetingId"), data.get("id")
                     if not (meeting_id and transcript_id):
                         continue
-                    clean = await self._transcript_text(client, transcript_id)
+                    clean = await self._transcript_text(client, meeting_id, transcript_id)
                     if clean is None:
                         continue
                     ref = _transcript_ref(meeting_id, transcript_id)

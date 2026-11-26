@@ -103,7 +103,8 @@ async def test_transcript_is_host_only_and_noise_is_cleaned():
     assert found[0].permissions == ["email:host@example.com"]
     assert found[0].mime_type == "text/plain"
     client.download.assert_awaited_once_with(
-        "https://webexapis.com/v1/meetingTranscripts/t1/download?format=txt", 5 * 1024 * 1024,
+        "https://webexapis.com/v1/meetingTranscripts/t1/download?meetingId=meeting1&format=txt",
+        5 * 1024 * 1024,
     )
 
 
