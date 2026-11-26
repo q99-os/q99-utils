@@ -78,6 +78,39 @@ class WebexClient:
         if self.on_refresh:
             await self.on_refresh(creds)
 
+    @staticmethod
+    def _check_status(status: int, *, download: bool = False) -> None:
+        """Map Webex HTTP failures consistently for metadata and content reads."""
+        if 200 <= status < 300 and (not download or status == 200):
+            return
+        match status:
+            case 401:
+                raise CredentialExpired("Reconnect Webex to continue.", source="webex_archive")
+            case 403:
+                raise AccessDenied("The Webex connection cannot access this resource.")
+            case 404 | 410:
+                raise ResourceNotFound("Webex resource not found.", source="webex_archive")
+            case code if 300 <= code < 400:
+                raise IntegrationError("Webex returned an unsupported redirect for this resource.")
+            case _:
+                operation = "download" if download else "request"
+                raise IntegrationError(f"Webex {operation} failed ({status}).")
+
+    @staticmethod
+    def _url_kind(url: str) -> str | None:
+        """Classify the only provider links that may receive our bearer token."""
+        parsed = urlsplit(url)
+        if parsed.scheme != "https" or parsed.username or parsed.fragment:
+            return None
+        host, path = parsed.netloc, parsed.path
+        if host in {"webexapis.com", "integration.webexapis.com"} and path.startswith("/v1/contents/"):
+            return "content"
+        if host == "webexapis.com" and path in {"/v1/events", "/v1/memberships"}:
+            return "page"
+        if host == "webexapis.com" and path.startswith("/v1/meetingTranscripts/") and path.endswith("/download"):
+            return "transcript"
+        return None
+
     async def _request(
         self,
         path: str,
@@ -87,20 +120,8 @@ class WebexClient:
         method: str = "GET",
     ) -> httpx.Response:
         url = absolute_url or f"{WEBEX_API}{path}"
-        if absolute_url:
-            parsed = urlsplit(url)
-            attachment = (
-                parsed.netloc in {"webexapis.com", "integration.webexapis.com"}
-                and parsed.path.startswith("/v1/contents/")
-                and method == "HEAD"
-            )
-            page = (
-                parsed.netloc == "webexapis.com"
-                and parsed.path in {"/v1/events", "/v1/memberships"}
-                and method == "GET"
-            )
-            if parsed.scheme != "https" or not (attachment or page):
-                raise ValueError("Only supported Webex API links are accepted.")
+        if absolute_url and self._url_kind(url) != {"HEAD": "content", "GET": "page"}.get(method):
+            raise ValueError("Only supported Webex API links are accepted.")
         for attempt in range(2):
             if not self.credentials.api_key:
                 await self._refresh()
@@ -116,40 +137,13 @@ class WebexClient:
             if response.status_code == 401 and attempt == 0:
                 await self._refresh()
                 continue
-            if response.status_code == 401:
-                raise CredentialExpired("Reconnect Webex to continue.", source="webex_archive")
-            if response.status_code == 403:
-                raise AccessDenied("The Webex connection cannot access this resource.")
-            if response.status_code in (404, 410):
-                raise ResourceNotFound("Webex resource not found.", source="webex_archive")
-            if 300 <= response.status_code < 400:
-                raise IntegrationError("Webex returned an unsupported redirect for this resource.")
-            if response.status_code >= 400:
-                raise IntegrationError(f"Webex request failed ({response.status_code}).")
+            self._check_status(response.status_code)
             return response
         raise IntegrationError("Webex authentication failed.")
 
-    @staticmethod
-    def _content_url(url: str) -> bool:
-        parsed = urlsplit(url)
-        return (
-            parsed.scheme == "https"
-            and parsed.netloc in {"webexapis.com", "integration.webexapis.com"}
-            and parsed.path.startswith("/v1/contents/")
-            and not parsed.username
-            and not parsed.fragment
-        ) or (
-            parsed.scheme == "https"
-            and parsed.netloc == "webexapis.com"
-            and parsed.path.startswith("/v1/meetingTranscripts/")
-            and parsed.path.endswith("/download")
-            and not parsed.username
-            and not parsed.fragment
-        )
-
     async def download(self, url: str, max_bytes: int) -> bytes:
         """Read a provider content link with a hard byte cap and no redirects."""
-        if not self._content_url(url):
+        if self._url_kind(url) not in {"content", "transcript"}:
             raise ValueError("Only Webex content links are accepted.")
         for attempt in range(2):
             if not self.credentials.api_key:
@@ -163,14 +157,7 @@ class WebexClient:
                         if response.status_code == 401 and attempt == 0:
                             await self._refresh()
                             continue
-                        if response.status_code == 401:
-                            raise CredentialExpired("Reconnect Webex to continue.", source="webex_archive")
-                        if response.status_code == 403:
-                            raise AccessDenied("Webex denied access to this content.")
-                        if response.status_code in (404, 410):
-                            raise ResourceNotFound("Webex content not found.", source="webex_archive")
-                        if response.status_code != 200:
-                            raise IntegrationError(f"Webex download failed ({response.status_code}).")
+                        self._check_status(response.status_code, download=True)
                         content = bytearray()
                         async for chunk in response.aiter_bytes():
                             content.extend(chunk)

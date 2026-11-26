@@ -6,6 +6,7 @@ import hashlib
 import io
 from datetime import datetime, timedelta, timezone
 from email.message import Message
+from typing import Awaitable, Callable
 from urllib.parse import quote, unquote
 
 from q99_utils.enums import SourceEnum
@@ -46,6 +47,13 @@ def _filename(disposition: str | None) -> str:
     header = Message()
     header["Content-Disposition"] = disposition
     return (header.get_filename() or "").replace("\\", "/").rsplit("/", 1)[-1]
+
+
+def _size(value: str | None) -> int | None:
+    try:
+        return int(value) if value else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _attachment_ref(room_id: str, message_id: str, url: str) -> str:
@@ -127,6 +135,80 @@ class WebexArchiveIntegration(SourceIntegrationInterface):
             return io.BytesIO(clean.encode("utf-8"))
         raise ValueError("Invalid Webex archive reference.")
 
+    async def _created_message(
+        self,
+        event: dict,
+        client: WebexClient,
+        known: dict,
+        acl: Callable[[str], Awaitable[list[str]]],
+    ) -> list[DiscoveredFile]:
+        data = event.get("data") or {}
+        message_id, room_id = data.get("id"), data.get("roomId")
+        if not (message_id and room_id):
+            return []
+
+        # The event holds the message at creation time, even if it changed later.
+        files = data.get("files")
+        if files is None:
+            try:
+                files = (await client._json(f"/messages/{quote(message_id, safe='')}")).get("files")
+            except ResourceNotFound:
+                return []
+        if not isinstance(files, list):
+            return []
+
+        changes = []
+        for url in files:
+            if not isinstance(url, str):
+                continue
+            ref = _attachment_ref(room_id, message_id, url)
+            if ref in known:
+                continue
+            try:
+                details = await client.file_details(url)
+            except (ResourceNotFound, ValueError):
+                continue
+            name = _filename(details.get("content_disposition"))
+            size = _size(details.get("content_length"))
+            if not attachment_decision(name, size, details.get("content_type")).accepted:
+                continue
+            changes.append(DiscoveredFile(
+                name=name, reference=ref, file_size=size,
+                mime_type=details.get("content_type"),
+                source_modified_at=_date(event.get("created")),
+                permissions=await acl(room_id),
+            ))
+        return changes
+
+    async def _created_transcript(
+        self, event: dict, client: WebexClient, known: dict,
+    ) -> DiscoveredFile | None:
+        data = event.get("data") or {}
+        meeting_id, transcript_id = data.get("meetingId"), data.get("id")
+        if not (meeting_id and transcript_id):
+            return None
+        try:
+            clean = await self._transcript_text(client, meeting_id, transcript_id)
+        except ResourceNotFound:
+            return None
+        if clean is None:
+            return None
+
+        ref = _transcript_ref(meeting_id, transcript_id)
+        host = data.get("hostEmail")
+        permissions = [PermissionTokens.email(host)] if isinstance(host, str) and "@" in host else [UNMAPPED]
+        encoded = clean.encode("utf-8")
+        digest = hashlib.sha256(encoded).hexdigest()
+        previous = known.get(ref)
+        if previous and previous.content_hash == digest and previous.permissions == permissions:
+            return None
+        return DiscoveredFile(
+            name=f"Webex transcript {meeting_id}.txt", reference=ref,
+            mime_type="text/plain", file_size=len(encoded), content_hash=digest,
+            source_modified_at=_date(event.get("created")), permissions=permissions,
+            change_kind=ChangeKind.UPDATED if previous else ChangeKind.ADDED,
+        )
+
     async def files_discovery(self) -> tuple[list[DiscoveredFile], dict]:
         client = await self.client()
         current = await self.load_sync_cursors()
@@ -157,74 +239,23 @@ class WebexArchiveIntegration(SourceIntegrationInterface):
                 raise IntegrationError("Webex returned an invalid events page.")
             for event in events:
                 data = event.get("data") or {}
-                resource, kind = event.get("resource"), event.get("type")
-                if resource == "messages" and kind == "created":
+                event_type = (event.get("resource"), event.get("type"))
+                if event_type == ("messages", "created"):
+                    changes.extend(await self._created_message(event, client, known, acl))
+                elif event_type == ("messages", "deleted"):
                     message_id, room_id = data.get("id"), data.get("roomId")
                     if not (message_id and room_id):
                         continue
-                    # Compliance events include the message as it was created. A
-                    # later edit/deletion must not hide its original file links.
-                    files = data.get("files")
-                    if files is None:
-                        try:
-                            files = (await client._json(f"/messages/{quote(message_id, safe='')}")).get("files")
-                        except ResourceNotFound:
-                            continue
-                    for url in files or []:
-                        try:
-                            details = await client.file_details(url)
-                        except ResourceNotFound:
-                            continue
-                        name = _filename(details.get("content_disposition"))
-                        try:
-                            size = int(details["content_length"]) if details.get("content_length") else None
-                        except ValueError:
-                            size = None
-                        if not attachment_decision(name, size, details.get("content_type")).accepted:
-                            continue
-                        ref = _attachment_ref(room_id, message_id, url)
-                        if ref in known:
-                            continue
-                        changes.append(DiscoveredFile(
-                            name=name, reference=ref, file_size=size,
-                            mime_type=details.get("content_type"),
-                            source_modified_at=_date(event.get("created")),
-                            permissions=await acl(room_id),
-                        ))
-                elif resource == "messages" and kind == "deleted":
-                    message_id, room_id = data.get("id"), data.get("roomId")
-                    if not (message_id and room_id):
-                        continue
-                    prefix = f"room/{quote(room_id, safe='')}/message/{quote(message_id, safe='')}/attachment/"
+                    prefix = _attachment_ref(room_id, message_id, "")
                     deleted_message_prefixes.add(prefix)
                     changes.extend(
                         DiscoveredFile(name=ref.rsplit("/", 1)[-1], reference=ref, change_kind=ChangeKind.REMOVED)
                         for ref in known if ref.startswith(prefix)
                     )
-                elif resource == "meetingTranscripts" and kind == "created":
-                    meeting_id, transcript_id = data.get("meetingId"), data.get("id")
-                    if not (meeting_id and transcript_id):
-                        continue
-                    try:
-                        clean = await self._transcript_text(client, meeting_id, transcript_id)
-                    except ResourceNotFound:
-                        continue
-                    if clean is None:
-                        continue
-                    ref = _transcript_ref(meeting_id, transcript_id)
-                    host = data.get("hostEmail")
-                    permissions = [PermissionTokens.email(host)] if isinstance(host, str) and "@" in host else [UNMAPPED]
-                    digest = hashlib.sha256(clean.encode("utf-8")).hexdigest()
-                    previous = known.get(ref)
-                    if previous and previous.content_hash == digest and previous.permissions == permissions:
-                        continue
-                    changes.append(DiscoveredFile(
-                        name=f"Webex transcript {meeting_id}.txt", reference=ref,
-                        mime_type="text/plain", file_size=len(clean.encode("utf-8")),
-                        content_hash=digest, source_modified_at=_date(event.get("created")),
-                        permissions=permissions,
-                        change_kind=ChangeKind.UPDATED if previous else ChangeKind.ADDED,
-                    ))
+                elif event_type == ("meetingTranscripts", "created"):
+                    transcript = await self._created_transcript(event, client, known)
+                    if transcript:
+                        changes.append(transcript)
             next_url = (response.links.get("next") or {}).get("url")
             if not next_url:
                 break

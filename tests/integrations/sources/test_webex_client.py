@@ -6,7 +6,9 @@ import httpx
 import pytest
 
 from q99_utils.enums import SourceEnum
-from q99_utils.integrations.core.exceptions import AppCredentialExpired, CredentialExpired, ResourceNotFound
+from q99_utils.integrations.core.exceptions import (
+    AccessDenied, AppCredentialExpired, CredentialExpired, IntegrationError, ResourceNotFound,
+)
 from q99_utils.integrations.sources.webex_client import WebexClient
 from q99_utils.models import OnboardingData
 
@@ -129,3 +131,45 @@ async def test_gone_content_is_treated_as_unavailable(install_transport, credent
         await client.file_details("https://webexapis.com/v1/contents/gone")
     with pytest.raises(ResourceNotFound):
         await client.download("https://webexapis.com/v1/contents/gone", 1024)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status, expected", [
+    (403, AccessDenied),
+    (404, ResourceNotFound),
+    (302, IntegrationError),
+    (429, IntegrationError),
+])
+async def test_metadata_and_download_share_http_error_mapping(
+    install_transport, credentials, status, expected,
+):
+    install_transport(lambda request: httpx.Response(status))
+    client = WebexClient(credentials)
+    url = "https://webexapis.com/v1/contents/file"
+
+    with pytest.raises(expected):
+        await client.file_details(url)
+    with pytest.raises(expected):
+        await client.download(url, 1024)
+
+
+@pytest.mark.asyncio
+async def test_download_retries_unauthorized_once_and_keeps_byte_limit(install_transport, credentials):
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        if request.url.path == "/v1/access_token":
+            return httpx.Response(200, json={"access_token": "new", "refresh_token": "rotated"})
+        if request.headers["Authorization"] == "Bearer old":
+            return httpx.Response(401)
+        return httpx.Response(200, content=b"report")
+
+    install_transport(respond)
+    client = WebexClient(credentials)
+    url = "https://webexapis.com/v1/contents/file"
+
+    assert await client.download(url, 6) == b"report"
+    assert [request.method for request in requests] == ["GET", "POST", "GET"]
+    with pytest.raises(IntegrationError, match="indexing limit"):
+        await client.download(url, 5)
