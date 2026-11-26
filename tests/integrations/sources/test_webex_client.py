@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from q99_utils.enums import SourceEnum
-from q99_utils.integrations.core.exceptions import AppCredentialExpired, CredentialExpired
+from q99_utils.integrations.core.exceptions import AppCredentialExpired, CredentialExpired, ResourceNotFound
 from q99_utils.integrations.sources.webex_client import WebexClient
 from q99_utils.models import OnboardingData
 
@@ -118,3 +118,14 @@ async def test_external_content_links_are_rejected_before_network(install_transp
         await client.download("https://internal.example/secret", 1024)
 
     assert requests == []
+
+
+@pytest.mark.asyncio
+async def test_gone_content_is_treated_as_unavailable(install_transport, credentials):
+    install_transport(lambda request: httpx.Response(410))
+    client = WebexClient(credentials)
+
+    with pytest.raises(ResourceNotFound):
+        await client.file_details("https://webexapis.com/v1/contents/gone")
+    with pytest.raises(ResourceNotFound):
+        await client.download("https://webexapis.com/v1/contents/gone", 1024)

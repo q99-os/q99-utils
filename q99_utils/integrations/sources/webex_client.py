@@ -120,7 +120,7 @@ class WebexClient:
                 raise CredentialExpired("Reconnect Webex to continue.", source="webex_archive")
             if response.status_code == 403:
                 raise AccessDenied("The Webex connection cannot access this resource.")
-            if response.status_code == 404:
+            if response.status_code in (404, 410):
                 raise ResourceNotFound("Webex resource not found.", source="webex_archive")
             if 300 <= response.status_code < 400:
                 raise IntegrationError("Webex returned an unsupported redirect for this resource.")
@@ -167,7 +167,7 @@ class WebexClient:
                             raise CredentialExpired("Reconnect Webex to continue.", source="webex_archive")
                         if response.status_code == 403:
                             raise AccessDenied("Webex denied access to this content.")
-                        if response.status_code == 404:
+                        if response.status_code in (404, 410):
                             raise ResourceNotFound("Webex content not found.", source="webex_archive")
                         if response.status_code != 200:
                             raise IntegrationError(f"Webex download failed ({response.status_code}).")

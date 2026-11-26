@@ -67,7 +67,11 @@ class WebexArchiveIntegration(SourceIntegrationInterface):
         )
 
     async def test_connection(self, data: OnboardingData | None = None) -> None:
-        events = await (await self.client(data))._json("/events", params={"max": 1})
+        client = await self.client(data)
+        # A working access token alone cannot prove that the saved client and
+        # refresh token will keep this unattended connection alive.
+        await client._refresh()
+        events = await client._json("/events", params={"max": 1})
         if not isinstance(events.get("items"), list):
             raise CredentialValidationError("Webex did not return an events list.", source="webex_archive")
 
@@ -158,9 +162,19 @@ class WebexArchiveIntegration(SourceIntegrationInterface):
                     message_id, room_id = data.get("id"), data.get("roomId")
                     if not (message_id and room_id):
                         continue
-                    message = await client._json(f"/messages/{quote(message_id, safe='')}")
-                    for url in message.get("files") or []:
-                        details = await client.file_details(url)
+                    # Compliance events include the message as it was created. A
+                    # later edit/deletion must not hide its original file links.
+                    files = data.get("files")
+                    if files is None:
+                        try:
+                            files = (await client._json(f"/messages/{quote(message_id, safe='')}")).get("files")
+                        except ResourceNotFound:
+                            continue
+                    for url in files or []:
+                        try:
+                            details = await client.file_details(url)
+                        except ResourceNotFound:
+                            continue
                         name = _filename(details.get("content_disposition"))
                         try:
                             size = int(details["content_length"]) if details.get("content_length") else None
@@ -191,7 +205,10 @@ class WebexArchiveIntegration(SourceIntegrationInterface):
                     meeting_id, transcript_id = data.get("meetingId"), data.get("id")
                     if not (meeting_id and transcript_id):
                         continue
-                    clean = await self._transcript_text(client, meeting_id, transcript_id)
+                    try:
+                        clean = await self._transcript_text(client, meeting_id, transcript_id)
+                    except ResourceNotFound:
+                        continue
                     if clean is None:
                         continue
                     ref = _transcript_ref(meeting_id, transcript_id)

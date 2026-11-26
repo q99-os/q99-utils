@@ -5,6 +5,7 @@ import pytest
 
 from q99_utils.enums import SourceEnum
 from q99_utils.integrations.core import IntegrationContext
+from q99_utils.integrations.core.exceptions import ResourceNotFound
 from q99_utils.integrations.ports.files import IndexedFile
 from q99_utils.integrations.sources.webex_archive import WebexArchiveIntegration, UNMAPPED
 from q99_utils.models import PermissionTokens
@@ -25,6 +26,19 @@ def integration(known=None):
 def page(items, next_url=None):
     headers = {"Link": f'<{next_url}>; rel="next"'} if next_url else {}
     return httpx.Response(200, json={"items": items}, headers=headers)
+
+
+@pytest.mark.asyncio
+async def test_connection_validates_refresh_pair_before_accepting_access_token():
+    item = integration()
+    client = AsyncMock()
+    client._json.return_value = {"items": []}
+    item.client = AsyncMock(return_value=client)
+
+    await item.test_connection()
+
+    client._refresh.assert_awaited_once()
+    client._json.assert_awaited_once_with("/events", params={"max": 1})
 
 
 @pytest.mark.asyncio
@@ -53,6 +67,54 @@ async def test_attachment_discovery_uses_room_membership_not_message_text():
     ]
     assert "Do not index this text" not in found[0].model_dump_json()
     assert "webex_events_from" in cursor
+
+
+@pytest.mark.asyncio
+async def test_event_file_links_survive_deleted_messages_without_extra_message_request():
+    item = integration()
+    client = AsyncMock()
+    client._request.side_effect = [
+        page([{
+            "resource": "messages", "type": "created",
+            "data": {"id": "m1", "roomId": "r1", "files": ["https://webexapis.com/v1/contents/f1"]},
+        }]),
+        page([{"personEmail": "alice@example.com"}]),
+    ]
+    client.file_details.return_value = {
+        "content_disposition": 'attachment; filename="report.pdf"',
+        "content_length": "50", "content_type": "application/pdf",
+    }
+    item.client = AsyncMock(return_value=client)
+
+    found, _ = await item.files_discovery()
+
+    assert [file.name for file in found] == ["report.pdf"]
+    client._json.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_gone_attachment_and_transcript_do_not_block_event_checkpoint():
+    item = integration()
+    client = AsyncMock()
+    client._request.return_value = page([
+        {
+            "resource": "messages", "type": "created",
+            "data": {"id": "m1", "roomId": "r1", "files": ["https://webexapis.com/v1/contents/gone"]},
+        },
+        {
+            "resource": "meetingTranscripts", "type": "created",
+            "data": {"id": "t1", "meetingId": "meeting1", "hostEmail": "host@example.com"},
+        },
+    ])
+    client.file_details.side_effect = ResourceNotFound("Gone")
+    client.download.side_effect = ResourceNotFound("Gone")
+    item.client = AsyncMock(return_value=client)
+
+    found, cursor = await item.files_discovery()
+
+    assert found == []
+    assert "webex_events_from" in cursor
+    assert "webex_events_next" not in cursor
 
 
 @pytest.mark.asyncio
