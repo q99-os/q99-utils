@@ -26,9 +26,11 @@ class WebexClient:
         self,
         credentials: OnboardingData,
         on_refresh: Callable[[OnboardingData], Awaitable[None]] | None = None,
+        reload_credentials: Callable[[], Awaitable[OnboardingData]] | None = None,
     ) -> None:
         self.credentials = credentials
         self.on_refresh = on_refresh
+        self.reload_credentials = reload_credentials
 
     async def _refresh(self) -> None:
         creds = self.credentials
@@ -47,9 +49,21 @@ class WebexClient:
                 )
         except httpx.HTTPError as exc:
             raise IntegrationError("Webex token refresh is unavailable.") from exc
-        if response.status_code in (401, 403) or "invalid_client" in response.text:
-            raise AppCredentialExpired("The Webex application must be updated by an administrator.", source="webex_archive")
         if response.status_code >= 400:
+            try:
+                error = response.json().get("error")
+            except (ValueError, AttributeError):
+                error = None
+            if error == "invalid_client":
+                raise AppCredentialExpired(
+                    "The Webex Service App credentials must be updated by an administrator.",
+                    source="webex_archive",
+                )
+            if error == "invalid_grant" and self.reload_credentials:
+                latest = await self.reload_credentials()
+                if latest.refresh_token != creds.refresh_token and latest.api_key:
+                    self.credentials = latest
+                    return
             raise CredentialExpired("Reconnect Webex to continue.", source="webex_archive")
         try:
             tokens = response.json()

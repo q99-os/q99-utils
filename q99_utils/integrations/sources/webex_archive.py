@@ -26,6 +26,8 @@ from q99_utils.integrations.sources.webex_content import (
 
 
 MAX_EVENT_PAGES = 2
+# Webex requires Pro Pack to access compliance events older than 90 days.
+INITIAL_EVENT_LOOKBACK_DAYS = 90
 UNMAPPED = "webex_archive:unmapped"
 
 
@@ -60,7 +62,9 @@ class WebexArchiveIntegration(SourceIntegrationInterface):
         if data is not None:
             return WebexClient(data)
         credentials = await self.get_credentials()
-        return WebexClient(credentials, on_refresh=self.persist_tokens)
+        return WebexClient(
+            credentials, on_refresh=self.persist_tokens, reload_credentials=self.get_credentials,
+        )
 
     async def test_connection(self, data: OnboardingData | None = None) -> None:
         events = await (await self.client(data))._json("/events", params={"max": 1})
@@ -125,7 +129,7 @@ class WebexArchiveIntegration(SourceIntegrationInterface):
         now = datetime.now(timezone.utc)
         next_url = current.get("webex_events_next")
         window_end = current.get("webex_events_to") or now.isoformat()
-        since = current.get("webex_events_from") or (now - timedelta(days=30)).isoformat()
+        since = current.get("webex_events_from") or (now - timedelta(days=INITIAL_EVENT_LOOKBACK_DAYS)).isoformat()
         known = await self.context.file_store.indexed_files(
             credential_id=self.credential_id, source=str(self.source),
         ) if self.credential_id and self.context.file_store else {}
@@ -204,21 +208,23 @@ class WebexArchiveIntegration(SourceIntegrationInterface):
                         permissions=permissions,
                         change_kind=ChangeKind.UPDATED if previous else ChangeKind.ADDED,
                     ))
-                elif resource == "memberships" and kind in {"created", "deleted", "updated"}:
-                    room_id = data.get("roomId")
-                    if room_id:
-                        room_acl.pop(room_id, None)
-                        prefix = f"room/{quote(room_id, safe='')}/"
-                        permissions = await acl(room_id)
-                        changes.extend(
-                            DiscoveredFile(name=ref.rsplit("/", 1)[-1], reference=ref,
-                                           permissions=permissions, change_kind=ChangeKind.PERMISSIONS_CHANGED)
-                            for ref, old in known.items()
-                            if ref.startswith(prefix) and old.permissions != permissions
-                        )
             next_url = (response.links.get("next") or {}).get("url")
             if not next_url:
                 break
+
+        # A backlog can delay membership events. Refresh permissions for every
+        # indexed room on each sync so revoked members do not retain access.
+        removed_refs = {change.reference for change in changes if change.change_kind == ChangeKind.REMOVED}
+        for ref, previous in known.items():
+            if not ref.startswith("room/") or ref in removed_refs:
+                continue
+            room_id = unquote(ref.split("/", 2)[1])
+            permissions = await acl(room_id)
+            if previous.permissions != permissions:
+                changes.append(DiscoveredFile(
+                    name=ref.rsplit("/", 1)[-1], reference=ref,
+                    permissions=permissions, change_kind=ChangeKind.PERMISSIONS_CHANGED,
+                ))
 
         # Event pages may arrive newest first. A deletion wins even when the
         # corresponding creation appeared on a later page of the same window.

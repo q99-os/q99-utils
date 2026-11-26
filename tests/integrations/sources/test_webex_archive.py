@@ -73,12 +73,12 @@ async def test_missing_membership_fails_closed():
 
 
 @pytest.mark.asyncio
-async def test_membership_removal_updates_existing_file_permissions():
+async def test_membership_removal_updates_permissions_without_waiting_for_its_event():
     ref = "room/r1/message/m1/attachment/https%3A%2F%2Fwebexapis.com%2Fv1%2Fcontents%2Ff1"
     item = integration({ref: IndexedFile(None, None, [PermissionTokens.email("alice@example.com")])})
     client = AsyncMock()
     client._request.side_effect = [
-        page([{"resource": "memberships", "type": "deleted", "data": {"roomId": "r1"}}]),
+        page([]),
         page([]),
     ]
     item.client = AsyncMock(return_value=client)

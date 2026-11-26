@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from q99_utils.enums import SourceEnum
+from q99_utils.integrations.core.exceptions import AppCredentialExpired, CredentialExpired
 from q99_utils.integrations.sources.webex_client import WebexClient
 from q99_utils.models import OnboardingData
 
@@ -69,6 +70,40 @@ async def test_customer_service_app_secret_refreshes_token(install_transport, cr
     assert requests[0].url.path == "/v1/access_token"
     assert "client_id=app" in requests[0].content.decode()
     assert "client_secret=secret" in requests[0].content.decode()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error, expected", [
+    ("invalid_client", AppCredentialExpired),
+    ("invalid_grant", CredentialExpired),
+])
+async def test_refresh_distinguishes_app_credentials_from_expired_token(
+    install_transport, credentials, error, expected,
+):
+    install_transport(lambda request: httpx.Response(401, json={"error": error}))
+    credentials.api_key = None
+
+    with pytest.raises(expected):
+        await WebexClient(credentials)._json("/events")
+
+
+@pytest.mark.asyncio
+async def test_refresh_uses_rotated_tokens_saved_by_another_worker(install_transport, credentials):
+    def respond(request):
+        if request.url.path == "/v1/access_token":
+            return httpx.Response(400, json={"error": "invalid_grant"})
+        if request.headers["Authorization"] == "Bearer rotated-access":
+            return httpx.Response(200, json={"items": []})
+        return httpx.Response(401)
+
+    install_transport(respond)
+    reload_credentials = AsyncMock(return_value=credentials.model_copy(update={
+        "api_key": "rotated-access", "refresh_token": "rotated-refresh",
+    }))
+
+    client = WebexClient(credentials, reload_credentials=reload_credentials)
+    assert await client._json("/events") == {"items": []}
+    reload_credentials.assert_awaited_once()
 
 
 @pytest.mark.asyncio
