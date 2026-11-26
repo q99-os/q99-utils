@@ -24,6 +24,11 @@ google = [
 openwells = [
     "sqlglot==30.0.1",
 ]
+# Quantum computers through QDMI (MQT Core). 4.2.1 is what the Braket, IBM and
+# IQM QDMI devices need; it bundles the free DDSIM simulator used in tests.
+quantum = [
+    "mqt-core==4.2.1",
+]
 
 [dependency-groups]
 dev = [

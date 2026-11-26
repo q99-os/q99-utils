@@ -16,6 +16,11 @@ q99_utils/
 │   ├── reports.py              UMReport, UMReportSection
 │   └── scheduling.py           UMCrontab, UMTaskSchedule
 ├── integrations/       integraciones con fuentes externas (tiene su propio README)
+├── quantum/            computadoras cuánticas detrás de una sola interfaz
+│   ├── base.py                 QPUProvider (el contrato)
+│   ├── types.py                JobRef, JobResult, JobStatus
+│   ├── qdmi.py                 QDMIProvider: dispositivos QDMI (por ahora el simulador DDSIM)
+│   └── _driver.py              el único módulo que llama a mqt.core.qdmi
 ├── um_sdk.py           cliente HTTP del User Manager
 ├── environment.py      variables de entorno
 └── logger.py           logger de librería (NullHandler, no configura nada)
@@ -30,4 +35,8 @@ conviene `from q99_utils.enums import SourceEnum`.
 ```
 q99-utils              # base
 q99-utils[google]      # + la integración de Google Drive
+q99-utils[quantum]     # + MQT Core para los proveedores cuánticos (QDMI)
 ```
+
+Los tests de `quantum/` que usan el simulador se saltean sin el extra:
+`uv run --extra quantum pytest tests/quantum`.
