@@ -198,6 +198,7 @@ class UserManagerSDK:
                             parent_interaction_id:Optional[str] = None,
                             title:Optional[str] = None,
                             feature:Optional[str] = None,
+                            space_id:Optional[str] = None,
                             ):
         chat_url = f"{USER_MANAGER_URL}/v1/history/conversation/"
 
@@ -211,6 +212,8 @@ class UserManagerSDK:
             payload["title"] = title
         if feature is not None:
             payload["feature"] = feature # only read by UM when creating a new conversation
+        if space_id is not None:
+            payload["space"] = space_id # a new Spaces chat held on this space rather than starting its own
         
         return await self._request(method="POST", url=chat_url, json=payload)
         
@@ -224,6 +227,12 @@ class UserManagerSDK:
 
         return await self._request(method="PATCH", url=conversation_url, json=json)
         
+    async def name_branch(self, message_id: str, title: str):
+        """Name the branch a question opens, keeping the rest of the question's metadata and any name the person
+        gave the branch first."""
+        url = f"{USER_MANAGER_URL}/v1/messages/{message_id}/branch-title/"
+        return await self._request(method="POST", url=url, json={"title": title, "if_unnamed": True})
+
     async def patch_message(self, message_id:str, json:dict):
         message_url = f"{USER_MANAGER_URL}/v1/messages/{message_id}/"
         
@@ -499,3 +508,20 @@ class UserManagerSDK:
         """Delete the caller's schedule for a task. Admin-only for CATEGORY_APP tasks."""
         url = f"{USER_MANAGER_URL}/v1/tasks/{task_name}/"
         return await self._request(method="DELETE", url=url)
+
+    async def get_space(self, space_id: str):
+        """A space's name, tiles, layout and versions, for the person it belongs to."""
+        url = f"{USER_MANAGER_URL}/v1/spaces/{space_id}/"
+        return await self._request(method="GET", url=url)
+
+    async def save_space_tiles(self, space_id: str, tiles: list, version: int):
+        """Replace a space's tiles on top of the `version` they were read at: Quantos writing for the person whose chat
+        asked (an agent client). Raises 412 when the space changed since, 403 when that person may not make the change."""
+        url = f"{USER_MANAGER_URL}/v1/spaces/{space_id}/"
+        return await self._request(method="PATCH", url=url, headers={"If-Match": str(version)}, json={"tiles": tiles})
+
+    async def name_space(self, space_id: str, title: str, symbol: dict):
+        """Give a new space its name and the symbol that marks it in the list of spaces: an icon name, a tone and a
+        pattern (service key only)."""
+        url = f"{USER_MANAGER_URL}/v1/spaces/{space_id}/"
+        return await self._request(method="PATCH", url=url, json={"title": title, "symbol": symbol})
