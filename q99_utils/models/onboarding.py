@@ -16,6 +16,7 @@ class OnboardingData(BaseModel):
     client_id: str | None = Field(default=None)
     tenant_id: str | None = Field(default=None)
     client_secret: str | None = Field(default=None)
+    auth_mode: str | None = Field(default=None)
     tenant_name: str | None = Field(default=None)
     site_name: str | None = Field(default=None)
     site_id: str | None = Field(default=None)

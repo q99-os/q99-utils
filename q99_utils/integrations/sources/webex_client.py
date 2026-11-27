@@ -27,15 +27,17 @@ class WebexClient:
         credentials: OnboardingData,
         on_refresh: Callable[[OnboardingData], Awaitable[None]] | None = None,
         reload_credentials: Callable[[], Awaitable[OnboardingData]] | None = None,
+        source: str = "webex_archive",
     ) -> None:
         self.credentials = credentials
         self.on_refresh = on_refresh
         self.reload_credentials = reload_credentials
+        self.source = source
 
     async def _refresh(self) -> None:
         creds = self.credentials
         if not (creds.refresh_token and creds.client_id and creds.client_secret):
-            raise CredentialExpired("Reconnect Webex to continue.", source="webex_archive")
+            raise CredentialExpired("Reconnect Webex to continue.", source=self.source)
         try:
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                 response = await client.post(
@@ -56,15 +58,15 @@ class WebexClient:
                 error = None
             if error == "invalid_client":
                 raise AppCredentialExpired(
-                    "The Webex Service App credentials must be updated by an administrator.",
-                    source="webex_archive",
+                    "The Webex application credentials must be updated by an administrator.",
+                    source=self.source,
                 )
             if error == "invalid_grant" and self.reload_credentials:
                 latest = await self.reload_credentials()
                 if latest.refresh_token != creds.refresh_token and latest.api_key:
                     self.credentials = latest
                     return
-            raise CredentialExpired("Reconnect Webex to continue.", source="webex_archive")
+            raise CredentialExpired("Reconnect Webex to continue.", source=self.source)
         try:
             tokens = response.json()
             access_token = tokens["access_token"]
@@ -78,18 +80,17 @@ class WebexClient:
         if self.on_refresh:
             await self.on_refresh(creds)
 
-    @staticmethod
-    def _check_status(status: int, *, download: bool = False) -> None:
+    def _check_status(self, status: int, *, download: bool = False) -> None:
         """Map Webex HTTP failures consistently for metadata and content reads."""
         if 200 <= status < 300 and (not download or status == 200):
             return
         match status:
             case 401:
-                raise CredentialExpired("Reconnect Webex to continue.", source="webex_archive")
+                raise CredentialExpired("Reconnect Webex to continue.", source=self.source)
             case 403:
                 raise AccessDenied("The Webex connection cannot access this resource.")
             case 404 | 410:
-                raise ResourceNotFound("Webex resource not found.", source="webex_archive")
+                raise ResourceNotFound("Webex resource not found.", source=self.source)
             case code if 300 <= code < 400:
                 raise IntegrationError("Webex returned an unsupported redirect for this resource.")
             case _:
@@ -116,6 +117,7 @@ class WebexClient:
         path: str,
         *,
         params: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
         absolute_url: str | None = None,
         method: str = "GET",
     ) -> httpx.Response:
@@ -130,6 +132,7 @@ class WebexClient:
                     response = await client.request(
                         method, url,
                         params=params,
+                        json=json_body,
                         headers={"Authorization": f"Bearer {self.credentials.api_key}"},
                     )
             except httpx.HTTPError as exc:

@@ -1,4 +1,4 @@
-"""Company Webex archive: attachments and transcripts through the customer's Service App."""
+"""Company Webex archive: attachments and transcripts through the customer's OAuth grant."""
 
 from __future__ import annotations
 
