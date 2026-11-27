@@ -141,15 +141,17 @@ class WebexArchiveIntegration(SourceIntegrationInterface):
         client: WebexClient,
         known: dict,
         acl: Callable[[str], Awaitable[list[str]]],
+        current_files: list[str] | None = None,
     ) -> list[DiscoveredFile]:
         data = event.get("data") or {}
         message_id, room_id = data.get("id"), data.get("roomId")
         if not (message_id and room_id):
             return []
 
-        # The event holds the message at creation time, even if it changed later.
-        files = data.get("files")
-        if files is None:
+        # Confirm event attachments against the current message. An older event
+        # can otherwise resurrect a file removed by a later edit.
+        files = current_files if current_files is not None else data.get("files")
+        if current_files is None and (files is None or files):
             try:
                 files = (await client._json(f"/messages/{quote(message_id, safe='')}")).get("files")
             except ResourceNotFound:
@@ -242,6 +244,29 @@ class WebexArchiveIntegration(SourceIntegrationInterface):
                 event_type = (event.get("resource"), event.get("type"))
                 if event_type == ("messages", "created"):
                     changes.extend(await self._created_message(event, client, known, acl))
+                elif event_type == ("messages", "updated"):
+                    message_id, room_id = data.get("id"), data.get("roomId")
+                    if not (message_id and room_id):
+                        continue
+                    try:
+                        message = await client._json(f"/messages/{quote(message_id, safe='')}")
+                        files = message.get("files")
+                    except ResourceNotFound:
+                        files = []
+                    if not isinstance(files, list):
+                        continue
+                    prefix = _attachment_ref(room_id, message_id, "")
+                    present = {
+                        _attachment_ref(room_id, message_id, url)
+                        for url in files if isinstance(url, str)
+                    }
+                    changes.extend(
+                        DiscoveredFile(name=ref.rsplit("/", 1)[-1], reference=ref, change_kind=ChangeKind.REMOVED)
+                        for ref in known if ref.startswith(prefix) and ref not in present
+                    )
+                    changes.extend(await self._created_message(
+                        event, client, known, acl, current_files=files,
+                    ))
                 elif event_type == ("messages", "deleted"):
                     message_id, room_id = data.get("id"), data.get("roomId")
                     if not (message_id and room_id):

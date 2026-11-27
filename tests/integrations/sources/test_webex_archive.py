@@ -70,7 +70,7 @@ async def test_attachment_discovery_uses_room_membership_not_message_text():
 
 
 @pytest.mark.asyncio
-async def test_event_file_links_survive_deleted_messages_without_extra_message_request():
+async def test_event_file_links_are_checked_against_current_message():
     item = integration()
     client = AsyncMock()
     client._request.side_effect = [
@@ -84,12 +84,73 @@ async def test_event_file_links_survive_deleted_messages_without_extra_message_r
         "content_disposition": 'attachment; filename="report.pdf"',
         "content_length": "50", "content_type": "application/pdf",
     }
+    client._json.return_value = {"files": ["https://webexapis.com/v1/contents/f1"]}
     item.client = AsyncMock(return_value=client)
 
     found, _ = await item.files_discovery()
 
     assert [file.name for file in found] == ["report.pdf"]
-    client._json.assert_not_awaited()
+    client._json.assert_awaited_once_with("/messages/m1")
+
+
+@pytest.mark.asyncio
+async def test_older_creation_event_cannot_restore_a_removed_attachment():
+    item = integration()
+    client = AsyncMock()
+    client._request.return_value = page([{
+        "resource": "messages", "type": "created",
+        "data": {"id": "m1", "roomId": "r1", "files": ["https://webexapis.com/v1/contents/old"]},
+    }])
+    client._json.return_value = {"files": []}
+    item.client = AsyncMock(return_value=client)
+
+    found, _ = await item.files_discovery()
+
+    assert found == []
+    client.file_details.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_message_edit_removes_detached_file_and_discovers_new_attachment():
+    new_url = "https://webexapis.com/v1/contents/new"
+    old_ref = "room/r1/message/m1/attachment/https%3A%2F%2Fwebexapis.com%2Fv1%2Fcontents%2Fold"
+    item = integration({old_ref: IndexedFile(None, None, [PermissionTokens.email("alice@example.com")])})
+    client = AsyncMock()
+    client._request.side_effect = [
+        page([{"resource": "messages", "type": "updated", "data": {"id": "m1", "roomId": "r1"}}]),
+        page([{"personEmail": "alice@example.com"}]),
+    ]
+    client._json.return_value = {"files": [new_url]}
+    client.file_details.return_value = {
+        "content_disposition": 'attachment; filename="new.pdf"',
+        "content_length": "50", "content_type": "application/pdf",
+    }
+    item.client = AsyncMock(return_value=client)
+
+    found, _ = await item.files_discovery()
+
+    assert {(change.reference, change.change_kind) for change in found} == {
+        (old_ref, "removed"),
+        ("room/r1/message/m1/attachment/https%3A%2F%2Fwebexapis.com%2Fv1%2Fcontents%2Fnew", "added"),
+    }
+    client._json.assert_awaited_once_with("/messages/m1")
+
+
+@pytest.mark.asyncio
+async def test_message_edit_with_missing_files_does_not_delete_known_attachment():
+    ref = "room/r1/message/m1/attachment/https%3A%2F%2Fwebexapis.com%2Fv1%2Fcontents%2Fold"
+    item = integration({ref: IndexedFile(None, None, [UNMAPPED])})
+    client = AsyncMock()
+    client._request.side_effect = [
+        page([{"resource": "messages", "type": "updated", "data": {"id": "m1", "roomId": "r1"}}]),
+        page([]),
+    ]
+    client._json.return_value = {}
+    item.client = AsyncMock(return_value=client)
+
+    found, _ = await item.files_discovery()
+
+    assert found == []
 
 
 @pytest.mark.asyncio
@@ -108,6 +169,7 @@ async def test_gone_attachment_and_transcript_do_not_block_event_checkpoint():
     ])
     client.file_details.side_effect = ResourceNotFound("Gone")
     client.download.side_effect = ResourceNotFound("Gone")
+    client._json.return_value = {"files": ["https://webexapis.com/v1/contents/gone"]}
     item.client = AsyncMock(return_value=client)
 
     found, cursor = await item.files_discovery()
