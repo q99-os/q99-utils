@@ -24,6 +24,8 @@ from q99_utils.integrations.sources.sharepoint import SharepointIntegration
 from q99_utils.integrations.sources.slack import SlackIntegration
 from q99_utils.integrations.sources.teams import TeamsIntegration
 from q99_utils.integrations.sources.wellprod import WellprodIntegration
+from q99_utils.integrations.sources.webex_archive import WebexArchiveIntegration
+from q99_utils.integrations.sources.webex import WebexIntegration
 
 # Narrow on purpose: only a missing SDK is an absent extra, anything else is a bug.
 try:
@@ -60,6 +62,8 @@ __all__ = [
     "SlackIntegration",
     "TeamsIntegration",
     "WellprodIntegration",
+    "WebexArchiveIntegration",
+    "WebexIntegration",
 ]
 
 if GoogleDriveIntegration is None:

@@ -17,6 +17,7 @@ APP_SOURCE_BY_SOURCE = {
     SourceEnum.gmail_mailbox: SourceEnum.google_oauth_app,
     SourceEnum.outlook: SourceEnum.microsoft_oauth_app,
     SourceEnum.teams: SourceEnum.microsoft_oauth_app,
+    SourceEnum.webex: SourceEnum.webex_archive,
     SourceEnum.sharepoint: SourceEnum.microsoft_oauth_app,
     SourceEnum.outlook_mailbox: SourceEnum.microsoft_oauth_app,
 }
