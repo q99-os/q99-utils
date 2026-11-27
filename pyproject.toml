@@ -6,10 +6,10 @@ readme = "README.md"
 authors = [{ name = "Q99" }]
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi==0.137.2",
+    # Ranges, not pins: each service pins its own fastapi, pydantic and PyJWT.
+    "fastapi>=0.137.2,<1",
     "httpx==0.28.1",
-    "pydantic==2.12.5",
-    # A range, not a pin: user-manager pins PyJWT itself.
+    "pydantic>=2.12.5,<3",
     "pyjwt[crypto]>=2.8.0,<3",
 ]
 
